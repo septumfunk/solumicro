@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug",
+      "request": "launch",
+      "program": "${workspaceRoot}/build/solumicro",
+      "cwd": "${workspaceRoot}",
+      "terminal": "integrated",
+      "preLaunchTask": "CMake: build",
+
+      // Defaults (Linux/macOS)
+      "type": "lldb",
+      "env": {
+        "ASAN_OPTIONS": "detect_leaks=0:disable_coredump=0",
+        "LSAN_OPTIONS": "detect_leaks=0"
+      },
+
+      // Windows overrides
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${workspaceRoot}/build/solumicro.exe",
+      }
+    }
+  ]
+}

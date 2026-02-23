@@ -1,0 +1,7 @@
+manifest.solu
+scripts
+rooms
+sprites
+build
+*.exe
+build/*
