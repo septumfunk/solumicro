@@ -335,9 +335,11 @@ int sgb_game_run(void) {
         sgb_update_camera(g);
 
         sort_c = om->array.count;
-        if (!sort || pc > sort_c) {
-            if (pc) free(sort);
-            sort = calloc((pc = (sort_c > pc ? sort_c : pc)), sizeof(sgb_draw));
+        sort_c = om->array.count;
+        if (!sort || sort_c > pc) {
+            free(sort);
+            pc = sort_c;
+            sort = calloc(pc, sizeof(sgb_draw));
         }
         for (uint32_t i = 0; i < om->array.count; ++i) {
             solu_val *obj = om->array.data + i;
@@ -350,8 +352,9 @@ int sgb_game_run(void) {
                     break;
                 }
                 if (cc->depth > depth) {
-                    memcpy(cc + 1, cc, sort + om->array.count - cc);
-                    *cc = (sgb_draw){depth, *obj};
+                    size_t tail = (size_t)((sort + sort_c) - (cc + 1));
+                    memmove(cc + 1, cc, tail * sizeof(*cc));
+                    *cc = (sgb_draw){ depth, *obj };
                     break;
                 }
             }

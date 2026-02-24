@@ -310,9 +310,9 @@ solu_call_ex sgb_load_object(solu_state *s) {
     if (solu_isdtype(obj, SOLU_DERR))
         return solu_err(s, "Object [%u]:%s:load() error:\n-> %s\n", g->id_c - 1, (char *)type.dyn, (char *)obj.dyn);
 
-    sgb_callmethod(g, obj.dyn, "start");
     if (solu_isdtype(fields, SOLU_DOBJ))
         solu_dappend(obj, fields);
+    sgb_callmethod(g, obj.dyn, "start");
 
     return solu_ok(obj);
 }
