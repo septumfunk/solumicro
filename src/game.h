@@ -19,10 +19,9 @@ typedef struct {
 
     solu_val ginfo, gptr;
     solu_val objects, rooms;
+    solu_valmap sprites;
     solu_val load_cache;
     sf_str room_dir, obj_dir, spr_dir;
-
-    sgb_sprites sprites;
 } sgb_game;
 
 sgb_game *sgb_game_new(void);
@@ -30,11 +29,5 @@ int sgb_game_run(void);
 void sgb_game_free(sgb_game *game);
 
 int sgb_changeroom(sgb_game *g, char *name);
-
-#define EXPECTED_NAME sgb_spr_ex
-#define EXPECTED_O sgb_spritedata
-#define EXPECTED_E sf_str
-#include <sf/containers/expected.h>
-sgb_spr_ex sgb_sprite_data(sgb_game *game, char *name);
 
 #endif // GAME_H

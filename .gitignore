@@ -5,3 +5,5 @@ sprites
 build
 *.exe
 build/*
+.cache/
+.cache/*

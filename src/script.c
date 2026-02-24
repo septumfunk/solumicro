@@ -1,10 +1,15 @@
 #include "script.h"
+#include "asset.h"
 #include "game.h"
+#include "sf/containers/buffer.h"
 #include "sf/str.h"
 #include "solus/bytecode.h"
 #include "solus/val.h"
 #include "solus/vm.h"
+#include <math.h>
 #include <raylib.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 const char SGB_DEFAULT_CONFIG[] = "{ \n\
     title = 'solumicro'\n\
@@ -176,8 +181,11 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
 }
 
 void sgb_register(sgb_game *g) {
+    solu_val load = solu_dnew(g->s, SOLU_DOBJ);
+    solu_dobj_strset(load.dyn, "sprite", solu_wrapcfun(g->s, sgb_load_sprite, 1, &g->gptr, 1));
+
     solu_val draw = solu_dnew(g->s, SOLU_DOBJ);
-    solu_dobj_strset(draw.dyn, "sprite", solu_wrapcfun(g->s, sgb_draw_sprite, 5, &g->gptr, 1));
+    solu_dobj_strset(draw.dyn, "sprite", solu_wrapcfun(g->s, sgb_draw_sprite, 7, &g->gptr, 1));
     solu_dobj_strset(draw.dyn, "rect", solu_wrapcfun(g->s, sgb_draw_rect, 5, &g->gptr, 1));
 
     solu_val input = solu_dnew(g->s, SOLU_DOBJ);
@@ -185,11 +193,11 @@ void sgb_register(sgb_game *g) {
     solu_dobj_strset(input.dyn, "key_pressed", solu_wrapcfun(g->s, sgb_key_pressed, 1, NULL, 0));
     solu_dobj_strset(input.dyn, "key_released", solu_wrapcfun(g->s, sgb_key_released, 1, NULL, 0));
 
+     solu_setg(g->s, "load", load);
     solu_setg(g->s, "draw", draw);
     solu_setg(g->s, "input", input);
     solu_setg(g->s, "key", sgb_keys(g->s));
 }
-
 
 solu_call_ex sgb_quit(solu_state *s) {
     (*(sgb_game **)solu_capturec(s, 0).dyn)->open = false;
@@ -252,23 +260,64 @@ solu_call_ex sgb_set_title(solu_state *s) {
     return solu_ok(val);
 }
 
+static void sgb_spr_delete(void *_spr) {
+    sgb_spritedata *spr = _spr;
+    solu_valmap_delete(&((sgb_game *)spr->g)->sprites, spr->name);
+    sgb_spritedata_free(*spr);
+}
 
-static void sgb_sprite_delete(void *_sprite) {
-    sgb_sprite *spr = _sprite;
-    if (spr->texture.id > 0)
-        UnloadTexture(spr->texture);
-    spr->drawn = false;
+static solu_call_ex sgb_gwrap(solu_state *s) {
+    return solu_ok(solu_dobj_get(s, solu_capturec(s, 0).dyn, solu_get(s, 0)));
+}
+
+solu_call_ex sgb_load_sprite(solu_state *s) {
+    solu_val name = solu_get(s, 0);
+    if (!solu_isdtype(name, SOLU_DSTR))
+        return solu_err(s, "arg 'name' expected str got %s", solu_typename(name).c_str);
+
+    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+    solu_valmap_ex exists = solu_valmap_get(&g->sprites, sf_ref(name.dyn));
+    if (exists.is_ok && solu_isutype(exists.ok, sf_lit("spr")))
+        return solu_ok(exists.ok);
+
+    sgb_spr_ex ex = sgb_open_sprite(s, g->spr_dir, name.dyn);
+    if (!ex.is_ok) {
+        if (!ex.is_ok) {
+            solu_call_ex res = solu_panic("%s", ex.err.c_str);
+            sf_str_free(ex.err);
+            return res;
+        }
+    }
+    sgb_spritedata *spr = malloc(sizeof(sgb_spritedata));
+    *spr = ex.ok;
+    spr->g = g;
+
+    solu_val info = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_strset(info.dyn, "name", solu_dnstr(s, spr->name.c_str));
+    solu_dobj_strset(info.dyn, "width", (solu_val){SOLU_TI64, .i64=spr->size.width});
+    solu_dobj_strset(info.dyn, "height", (solu_val){SOLU_TI64, .i64=spr->size.height});
+    solu_dobj_strset(info.dyn, "frames", (solu_val){SOLU_TI64, .i64=spr->frame_c});
+
+    solu_val out = solu_dnusr(s, sizeof(sgb_spritedata *), "spr", &spr, sgb_spr_delete, NULL);
+    solu_usrwrap *usr = solu_uheader(out);
+    usr->metafuns[SOLU_META_SET] = solu_wrapcfun(s, sgb_noset, 2, NULL, 0);
+    usr->metafuns[SOLU_META_GET] = solu_wrapcfun(s, sgb_gwrap, 1, &info, 1);
+
+    solu_valmap_set(&g->sprites, sf_str_cdup(name.dyn), out);
+    return solu_ok(out);
 }
 
 solu_call_ex sgb_draw_sprite(solu_state *s) {
-    solu_val name = solu_get(s, 0);
+    solu_val sprite = solu_get(s, 0);
     solu_val x = solu_get(s, 1);
     solu_val y = solu_get(s, 2);
     solu_val frame = solu_get(s, 3);
     solu_val rot = solu_get(s, 4);
+    solu_val scale = solu_get(s, 5);
+    solu_val color = solu_get(s, 6);
 
-    if (!solu_isdtype(name, SOLU_DSTR))
-        return solu_err(s, "arg 'name' expected str got %s", solu_typename(name).c_str);
+    if (!solu_isutype(sprite, sf_lit("spr")))
+        return solu_err(s, "arg 'sprite' expected spr got %s", solu_typename(sprite).c_str);
     if (x.tt != SOLU_TI64) {
         if (x.tt == SOLU_TF64) x = (solu_val){SOLU_TI64, .i64=(solu_i64)x.f64};
         else return solu_err(s, "arg 'x' expected i64|f64 got %s", solu_typename(x).c_str);
@@ -284,43 +333,62 @@ solu_call_ex sgb_draw_sprite(solu_state *s) {
     if (rot.tt != SOLU_TF64)
         rot = (solu_val){SOLU_TF64, .f64=rot.tt == SOLU_TI64 ? (float)rot.i64 : 0};
 
+    float xscale = 1, yscale = 1;
+    solu_dobj *s_obj = scale.dyn;
+    if (solu_isdtype(scale, SOLU_DOBJ)) {
+        if (s_obj->array.count < 2 || s_obj->array.data[0].tt != SOLU_TF64 || s_obj->array.data[0].tt != SOLU_TF64)
+            return solu_err(s, "arg 'scale' expected obj[2:f64]");
+        xscale = (float)s_obj->array.data[0].f64;
+        yscale = (float)s_obj->array.data[1].f64;
+    }
+
+    Color c = WHITE;
+    solu_dobj *c_obj = color.dyn;
+    if (solu_isdtype(color, SOLU_DOBJ)) {
+        if (c_obj->array.count < 4 ||
+            c_obj->array.data[0].tt != SOLU_TI64 ||
+            c_obj->array.data[1].tt != SOLU_TI64 ||
+            c_obj->array.data[2].tt != SOLU_TI64 ||
+            c_obj->array.data[2].tt != SOLU_TI64)
+            return solu_err(s, "arg 'color' expected obj[4:i64]");
+        c = (Color){
+            (uint8_t)min(max(c_obj->array.data[0].i64, 0), UINT8_MAX),
+            (uint8_t)min(max(c_obj->array.data[1].i64, 0), UINT8_MAX),
+            (uint8_t)min(max(c_obj->array.data[2].i64, 0), UINT8_MAX),
+            (uint8_t)min(max(c_obj->array.data[3].i64, 0), UINT8_MAX),
+        };
+    }
+
     sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
     if (!g->drawing)
         return solu_panic("Draw call outside of object:draw()");
 
-    sgb_sprites_ex exists = sgb_sprites_get(&g->sprites, sf_ref(name.dyn));
-    sgb_spritedata spr;
-    if (!exists.is_ok) {
-        sgb_spr_ex ex = sgb_sprite_data(g, name.dyn);
-        if (!ex.is_ok) {
-            solu_call_ex res = solu_panic("%s", ex.err.c_str);
-            sf_str_free(ex.err);
-            return res;
-        }
-        sgb_sprites_set(&g->sprites, sf_str_cdup(name.dyn), ex.ok);
-        exists.ok = ex.ok;
-    }
-    spr = exists.ok;
+    sgb_spritedata spr = **(sgb_spritedata **)sprite.dyn;
 
     if (frame.i64 > spr.frame_c - 1 || frame.i64 < 0)
-        return solu_panic("Sprite '%s' does not contain frame %lld", name.dyn, frame.i64);
+        return solu_panic("Sprite '%s' does not contain frame %lld", spr.name.c_str, frame.i64);
 
     sgb_rect source = spr.frames[frame.i64];
     DrawTexturePro(
         spr.texture,
         (Rectangle){
-            (float)source.x, (float)source.y,
-            (float)source.width, (float)source.height,
+            (float)source.x,
+            (float)source.y,
+            (float)source.width  * (xscale < 0 ? -1.0f : 1.0f),
+            (float)source.height * (yscale < 0 ? -1.0f : 1.0f),
         },
         (Rectangle){
-            (float)x.i64, (float)y.i64,
-            (float)source.width, (float)source.height,
+            (float)x.i64,
+            (float)y.i64,
+            (float)source.width * fabsf(xscale),
+            (float)source.height * fabsf(yscale)
         },
         (Vector2){
-            (float)source.origin.x, (float)source.origin.y,
+            (float)source.origin.x * fabsf(xscale),
+            (float)source.origin.y * fabsf(yscale)
         },
         (float)rot.f64,
-        WHITE
+        c
     );
 
     return solu_ok(SOLU_NIL);
@@ -438,6 +506,8 @@ solu_val sgb_keys(solu_state *s) {
     solu_dobj_strset(keys.dyn, "seven", (solu_val){SOLU_TI64, .i64=KEY_SEVEN});
     solu_dobj_strset(keys.dyn, "eight", (solu_val){SOLU_TI64, .i64=KEY_EIGHT});
     solu_dobj_strset(keys.dyn, "nine",  (solu_val){SOLU_TI64, .i64=KEY_NINE});
+    solu_dobj_strset(keys.dyn, "equal", (solu_val){SOLU_TI64, .i64=KEY_EQUAL});
+    solu_dobj_strset(keys.dyn, "minus",  (solu_val){SOLU_TI64, .i64=KEY_MINUS});
 
     // Function keys
     solu_dobj_strset(keys.dyn, "f1",  (solu_val){SOLU_TI64, .i64=KEY_F1});

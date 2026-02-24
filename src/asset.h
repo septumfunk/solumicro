@@ -1,7 +1,7 @@
 #ifndef ASSET_H
 #define ASSET_H
 
-#include <sf/str.h>
+#include <solus/vm.h>
 #include <raylib.h>
 #include <stdint.h>
 
@@ -18,6 +18,8 @@ typedef struct {
 } sgb_rect;
 
 typedef struct {
+    void *g;
+    sf_str name;
     Texture2D texture;
     sgb_size size;
     sgb_rect *frames;
@@ -25,11 +27,13 @@ typedef struct {
 } sgb_spritedata;
 
 static inline void sgb_spritedata_free(sgb_spritedata sprite) {
+    sf_str_free(sprite.name);
+    UnloadTexture(sprite.texture);
     if (sprite.frames) free(sprite.frames);
 }
+
 typedef struct sgb_sprites sgb_sprites;
 void _sgb_sprites_cleanup(sgb_sprites *);
-
 #define MAP_NAME sgb_sprites
 #define MAP_K sf_str
 #define MAP_V sgb_spritedata
@@ -38,5 +42,11 @@ void _sgb_sprites_cleanup(sgb_sprites *);
 #define CLEANUP_FN _sgb_sprites_cleanup
 #define KCLEANUP sf_str_free
 #include <sf/containers/map.h>
+
+#define EXPECTED_NAME sgb_spr_ex
+#define EXPECTED_O sgb_spritedata
+#define EXPECTED_E sf_str
+#include <sf/containers/expected.h>
+sgb_spr_ex sgb_open_sprite(solu_state *state, sf_str spr_dir, char *name);
 
 #endif // ASSET_H

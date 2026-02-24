@@ -23,6 +23,33 @@ void _sgb_sprites_cleanup(sgb_sprites *spr) {
     sgb_sprites_foreach(spr, _sgb_sprites_fe, NULL);
 }
 
+static inline bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
+    solu_val update = solu_dobj_strget(obj, name);
+    if (solu_isdtype(update, SOLU_DFUN)) {
+        solu_call_ex call_ex = solu_call(g->s, update.dyn, NULL, 0);
+        if (!call_ex.is_ok) {
+            solu_val id = solu_dobj_strget(obj, "id");
+            solu_val type = solu_dobj_strget(obj, "type");
+            fprintf(stderr, "Object [%lld]:%s:%s() error:\n-> %s\n",
+                id.tt == SOLU_TI64 ? id.i64 : -1,
+                solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
+                name,
+                call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
+            );
+            if (call_ex.err.panic)
+                free(call_ex.err.panic);
+        }
+        return true;
+    }
+    return false;
+}
+
+static void sgb_callmethods(sgb_game *g, solu_dobj *om, char *name) {
+    for (solu_val *obj = om->array.data; obj < om->array.data + om->array.count; ++obj) {
+        sgb_callmethod(g, obj->dyn, name);
+    }
+}
+
 int sgb_changeroom(sgb_game *g, char *name) {
     char *path = solu_findfile(g->room_dir.c_str, name);
     if (!path) return -1;
@@ -67,6 +94,7 @@ int sgb_changeroom(sgb_game *g, char *name) {
     g->room = sf_str_cdup(name);
     solu_dobj_strset(g->ginfo.dyn, "room", solu_dnstr(g->s, g->room.c_str));
 
+    sgb_callmethods(g, g->objects.dyn, "cleanup");
     solu_drelease(g->objects);
     solu_setg(g->s, "objects", (g->objects = solu_dnew(g->s, SOLU_DOBJ)));
     solu_dhold(g->objects);
@@ -87,6 +115,7 @@ int sgb_changeroom(sgb_game *g, char *name) {
             continue;
         }
         type = solu_dobj_strget(v->dyn, "type");
+        sgb_callmethod(g, obj.dyn, "start");
         solu_dappend(obj, *v);
     }
     solu_drelease(spawns);
@@ -135,9 +164,8 @@ sgb_game *sgb_game_new(void) {
 
         .objects = solu_dnew(s, SOLU_DOBJ),
         .rooms = solu_dnew(s, SOLU_DOBJ),
+        .sprites = solu_valmap_new(),
         .load_cache = solu_dnew(s, SOLU_DOBJ),
-
-        .sprites = sgb_sprites_new(),
     };
     if (solu_isdtype(game->manifest, SOLU_DERR)) {
         fprintf(stderr, "%s\n", (char *)game->manifest.dyn);
@@ -164,7 +192,7 @@ sgb_game *sgb_game_new(void) {
         sizeof(sgb_game *),
         "gameptr",
         &game,
-        NULL, NULL, NULL
+        NULL, NULL
     );
     solu_setg(s, "__game", gptr);
     game->gptr = gptr;
@@ -295,27 +323,14 @@ int sgb_game_run(void) {
 
     while (!WindowShouldClose()) { // Raylib Loop
         for (solu_val *obj = om->array.data; obj < om->array.data + om->array.count; ++obj) {
-            if (obj->tt == SOLU_TNIL) continue;
-            solu_val update = solu_dobj_strget(obj->dyn, "update");
-            if (solu_isdtype(update, SOLU_DFUN)) {
-                solu_call_ex call_ex = solu_call(g->s, update.dyn, NULL, 0);
-                if (!call_ex.is_ok) {
-                    solu_val id = solu_dobj_strget(obj->dyn, "id");
-                    solu_val type = solu_dobj_strget(obj->dyn, "type");
-                    fprintf(stderr, "Object [%lld]:%s:update() error:\n-> %s\n",
-                        id.tt == SOLU_TI64 ? id.i64 : -1,
-                        solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
-                        call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
-                    );
-                    if (call_ex.err.panic)
-                        free(call_ex.err.panic);
-                }
+            if (!solu_isdtype(*obj, SOLU_DOBJ)) continue;
+            if (sgb_callmethod(g, obj->dyn, "update")) {
                 if (WindowShouldClose()) goto close;
                 if (g->roomchange)
                     break;
             }
         }
-        if (g->roomchange) {
+        if (g->roomchange) { // Interrupt update if room changes
             g->roomchange = false;
             om = g->objects.dyn;
             if (sort) free(sort);
@@ -329,6 +344,7 @@ int sgb_game_run(void) {
             sort = calloc((pc = om->array.count > pc ? om->array.count : pc), sizeof(sgb_draw));
         }
         for (solu_val *obj = om->array.data; obj < om->array.data + om->array.count; ++obj) {
+            if (!solu_isdtype(*obj, SOLU_DOBJ)) continue;
             solu_val dv = solu_dobj_strget(obj->dyn, "depth");
             solu_f64 depth = dv.tt == SOLU_TF64 ? dv.f64 : 0;
             for (sgb_draw *cc = sort; cc < sort + om->array.count; ++cc) {
@@ -349,25 +365,11 @@ int sgb_game_run(void) {
             g->drawing = true;
             for (int i = 0; i < 2; ++i) {
                 g->gui = i;
-                for (sgb_draw *draw = sort; draw < sort + om->array.count; ++draw) {
-                    solu_val dfun = solu_dobj_strget(draw->drawable.dyn, i ? "draw_gui" : "draw");
-                    if (solu_isdtype(dfun, SOLU_DFUN)) {
-                        solu_call_ex call_ex = solu_call(g->s, dfun.dyn, NULL, 0);
-                        if (!call_ex.is_ok) {
-                            solu_val id = solu_dobj_strget(draw->drawable.dyn, "id");
-                            solu_val type = solu_dobj_strget(draw->drawable.dyn, "type");
-                            fprintf(stderr, i ? "Object [%lld]:%s:draw_gui() error:\n-> %s\n" : "Object [%lld]:%s:draw() error:\n-> %s\n",
-                                id.tt == SOLU_TI64 ? id.i64 : -1,
-                                solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
-                                call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
-                            );
-                            if (call_ex.err.panic)
-                                free(call_ex.err.panic);
-                        }
+                for (sgb_draw *draw = sort; draw < sort + om->array.count; ++draw)
+                    if (sgb_callmethod(g, draw->drawable.dyn, i ? "draw_gui" : "draw")) {
                         if (WindowShouldClose()) goto close;
                         sgb_update_camera(g);
                     }
-                }
             }
             g->drawing = g->gui = false;
         EndTextureMode();
@@ -407,7 +409,7 @@ void sgb_game_free(sgb_game *game) {
     sf_str_free(game->room_dir);
     sf_str_free(game->obj_dir);
     sf_str_free(game->spr_dir);
-    sgb_sprites_free(&game->sprites);
+    solu_valmap_free(&game->sprites);
     if (game->open) CloseWindow();
 }
 
@@ -415,107 +417,4 @@ int main(void) {
     return sgb_game_run();
 }
 
-sgb_spr_ex sgb_sprite_data(sgb_game *g, char *name) {
-    char *fpath = solu_findfile(g->spr_dir.c_str, name);
-    if (!fpath) {
-        free(fpath);
-        return sgb_spr_ex_err(sf_str_fmt("Failed to load sprite '%s'", name));
-    }
 
-    solu_compile_ex comp_ex = solu_cfile(g->s, fpath);
-    free(fpath);
-    if (!comp_ex.is_ok)
-        return sgb_spr_ex_err(sf_str_fmt(
-            "Failed to compile sprite '%s': %s",
-            name, solu_err_string(comp_ex.err.tt)
-        ));
-
-    solu_call_ex call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
-    if (!call_ex.is_ok) {
-        sf_str e = sf_str_fmt("Panic during manifest.solu: %s\n", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
-        if (call_ex.err.panic)
-            free(call_ex.err.panic);
-        return sgb_spr_ex_err(e);
-    }
-    if (!solu_isdtype(call_ex.ok, SOLU_DOBJ))
-        return sgb_spr_ex_err(sf_str_fmt("Expected sprite '%s' to return obj, got %s\n", name, solu_typename(call_ex.ok).c_str));
-
-    solu_val frames = solu_dobj_strget(call_ex.ok.dyn, "frames");
-    solu_dobj *obj = frames.dyn;
-    if (!solu_isdtype(call_ex.ok, SOLU_DOBJ) || obj->array.count == 0)
-        return sgb_spr_ex_err(sf_str_fmt("Expected sprite '%s' to contain frames:obj[>0]", name));
-
-    solu_val source = solu_dobj_strget(call_ex.ok.dyn, "source");
-    if (!solu_isdtype(source, SOLU_DSTR))
-        return sgb_spr_ex_err(sf_str_fmt("Expected sprite '%s' to contain source:str", name));
-
-    sf_str join = sf_str_join(g->spr_dir, sf_lit("/"));
-    sf_str j2 = sf_str_join(join, sf_ref(source.dyn));
-    sf_str_free(join);
-    join = j2;
-
-    char *spath = solu_realpath(join.c_str);
-    sf_str_free(join);
-    if (!spath)
-        return sgb_spr_ex_err(sf_str_fmt("Failed to find sprite '%s' source sprite '%s'", name, source.dyn));
-
-    Texture2D texture = LoadTexture(spath);
-    free(spath);
-    if (!texture.id)
-        return sgb_spr_ex_err(sf_str_fmt("Failed to load sprite '%s' source sprite '%s'", name, source.dyn));
-    sgb_spritedata spr = {
-        .texture = texture,
-        .size = {(uint32_t)texture.width, (uint32_t)texture.height},
-        .frames = malloc(obj->array.count * sizeof(sgb_rect)),
-        .frame_c = obj->array.count,
-    };
-    uint32_t o = 0;
-    for (uint32_t i = 0; i < obj->array.count; ++i) {
-        solu_val frame = obj->array.data[i];
-        if (!solu_isdtype(frame, SOLU_DOBJ)) {
-            free(spr.frames);
-            return sgb_spr_ex_err(sf_str_fmt("Expected sprite '%s' frames[%u]:obj[4:i64]", name, i));
-        }
-        solu_dobj *obj = frame.dyn;
-        if (obj->array.count < 4 ||
-            obj->array.data[0].tt != SOLU_TI64 ||
-            obj->array.data[1].tt != SOLU_TI64 ||
-            obj->array.data[2].tt != SOLU_TI64 ||
-            obj->array.data[3].tt != SOLU_TI64) {
-            free(spr.frames);
-            return sgb_spr_ex_err(sf_str_fmt("Expected sprite '%s' frames[%u]:obj[4:i64]", name, i));
-        }
-        solu_val origin = solu_dobj_strget(obj, "origin");
-        sgb_point og = {0, 0};
-        if (solu_isdtype(origin, SOLU_DOBJ)) {
-            solu_dobj *oo = origin.dyn;
-            if (oo->array.count < 2 || oo->array.data[0].tt != SOLU_TI64 || oo->array.data[1].tt != SOLU_TI64)
-                return sgb_spr_ex_err(sf_str_fmt("Expected sprite '%s' frames[%u]:obj:origin[2:i64]", name, i));
-            og = (sgb_point){(int32_t)oo->array.data[0].i64, (int32_t)oo->array.data[1].i64};
-        }
-
-        spr.frames[o + i] = (sgb_rect){
-            (uint32_t)obj->array.data[0].i64,
-            (uint32_t)obj->array.data[1].i64,
-            (uint32_t)obj->array.data[2].i64,
-            (uint32_t)obj->array.data[3].i64,
-            og
-        };
-        solu_val repeat = solu_dobj_strget(obj, "repeat");
-        if (repeat.tt == SOLU_TI64) {
-            spr.frames = realloc(spr.frames, (spr.frame_c += repeat.i64) * sizeof(sgb_rect));
-            for (uint32_t j = 0; j < (uint32_t)repeat.i64; ++j) {
-                ++o;
-                spr.frames[o + i] = (sgb_rect){
-                    (uint32_t)obj->array.data[0].i64,
-                    (uint32_t)obj->array.data[1].i64,
-                    (uint32_t)obj->array.data[2].i64,
-                    (uint32_t)obj->array.data[3].i64,
-                    og
-                };
-            }
-        }
-    }
-
-    return sgb_spr_ex_ok(spr);
-}
