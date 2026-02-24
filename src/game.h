@@ -30,4 +30,11 @@ void sgb_game_free(sgb_game *game);
 
 int sgb_changeroom(sgb_game *g, char *name);
 
+bool sgb_callmethod(sgb_game *g, solu_dobj *om, char *name);
+static inline void sgb_callmethods(sgb_game *g, solu_dobj *om, char *name) {
+    for (solu_val *obj = om->array.data; obj < om->array.data + om->array.count; ++obj) {
+        sgb_callmethod(g, obj->dyn, name);
+    }
+}
+
 #endif // GAME_H

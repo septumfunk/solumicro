@@ -24,6 +24,7 @@ solu_call_ex sgb_set_room(solu_state *state);
 solu_call_ex sgb_set_title(solu_state *state);
 
 solu_call_ex sgb_load_sprite(solu_state *state);
+solu_call_ex sgb_load_object(solu_state *state);
 
 solu_call_ex sgb_draw_sprite(solu_state *state);
 solu_call_ex sgb_draw_rect(solu_state *state);

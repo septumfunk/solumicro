@@ -23,7 +23,7 @@ void _sgb_sprites_cleanup(sgb_sprites *spr) {
     sgb_sprites_foreach(spr, _sgb_sprites_fe, NULL);
 }
 
-static inline bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
+bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
     solu_val update = solu_dobj_strget(obj, name);
     if (solu_isdtype(update, SOLU_DFUN)) {
         solu_call_ex call_ex = solu_call(g->s, update.dyn, NULL, 0);
@@ -42,12 +42,6 @@ static inline bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
         return true;
     }
     return false;
-}
-
-static void sgb_callmethods(sgb_game *g, solu_dobj *om, char *name) {
-    for (solu_val *obj = om->array.data; obj < om->array.data + om->array.count; ++obj) {
-        sgb_callmethod(g, obj->dyn, name);
-    }
 }
 
 int sgb_changeroom(sgb_game *g, char *name) {
@@ -114,7 +108,6 @@ int sgb_changeroom(sgb_game *g, char *name) {
             fprintf(stderr, "Object [%u]:%s:load() error:\n-> %s\n", g->id_c - 1, (char *)type.dyn, (char *)obj.dyn);
             continue;
         }
-        type = solu_dobj_strget(v->dyn, "type");
         sgb_callmethod(g, obj.dyn, "start");
         solu_dappend(obj, *v);
     }
@@ -319,10 +312,12 @@ int sgb_game_run(void) {
     solu_dobj *om = g->objects.dyn;
 
     sgb_draw *sort = NULL;
+    uint32_t sort_c = 0;
     uint32_t pc = 0;
 
     while (!WindowShouldClose()) { // Raylib Loop
-        for (solu_val *obj = om->array.data; obj < om->array.data + om->array.count; ++obj) {
+        for (uint32_t i = 0; i < om->array.count; ++i) {
+            solu_val *obj = om->array.data + i;
             if (!solu_isdtype(*obj, SOLU_DOBJ)) continue;
             if (sgb_callmethod(g, obj->dyn, "update")) {
                 if (WindowShouldClose()) goto close;
@@ -339,11 +334,13 @@ int sgb_game_run(void) {
         }
         sgb_update_camera(g);
 
-        if (!sort || pc > om->array.count) {
+        sort_c = om->array.count;
+        if (!sort || pc > sort_c) {
             if (pc) free(sort);
-            sort = calloc((pc = om->array.count > pc ? om->array.count : pc), sizeof(sgb_draw));
+            sort = calloc((pc = (sort_c > pc ? sort_c : pc)), sizeof(sgb_draw));
         }
-        for (solu_val *obj = om->array.data; obj < om->array.data + om->array.count; ++obj) {
+        for (uint32_t i = 0; i < om->array.count; ++i) {
+            solu_val *obj = om->array.data + i;
             if (!solu_isdtype(*obj, SOLU_DOBJ)) continue;
             solu_val dv = solu_dobj_strget(obj->dyn, "depth");
             solu_f64 depth = dv.tt == SOLU_TF64 ? dv.f64 : 0;
@@ -365,11 +362,13 @@ int sgb_game_run(void) {
             g->drawing = true;
             for (int i = 0; i < 2; ++i) {
                 g->gui = i;
-                for (sgb_draw *draw = sort; draw < sort + om->array.count; ++draw)
+                for (sgb_draw *draw = sort; draw < sort + sort_c; ++draw) {
+                    if (!solu_isdtype(draw->drawable, SOLU_DOBJ)) continue;
                     if (sgb_callmethod(g, draw->drawable.dyn, i ? "draw_gui" : "draw")) {
                         if (WindowShouldClose()) goto close;
                         sgb_update_camera(g);
                     }
+                }
             }
             g->drawing = g->gui = false;
         EndTextureMode();

@@ -146,7 +146,8 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
 
     solu_call_ex call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
     if (!call_ex.is_ok) {
-        sf_str e = sf_str_fmt("Panic while loading gameobject: %s\n", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
+        uint16_t line = SOLU_DBG_LINE(comp_ex.ok.dbg[call_ex.err.pc]);
+        sf_str e = sf_str_fmt("Panic while loading gameobject:%u: %s\n", line, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         out = solu_dnerr(g->s, e.c_str);
         sf_str_free(e);
         if (call_ex.err.panic)
@@ -167,22 +168,13 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     solu_dobj_strset(out.dyn, "type", solu_dnstr(g->s, path.c_str));
     solu_dobj_set(g->s, g->objects.dyn, idv, out);
 
-    call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
-    if (!call_ex.is_ok) {
-        sf_str e = sf_str_fmt("Panic while loading gameobject: %s\n", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
-        out = solu_dnerr(g->s, e.c_str);
-        sf_str_free(e);
-        if (call_ex.err.panic)
-            free(call_ex.err.panic);
-        return out;
-    }
-
     return out;
 }
 
 void sgb_register(sgb_game *g) {
     solu_val load = solu_dnew(g->s, SOLU_DOBJ);
     solu_dobj_strset(load.dyn, "sprite", solu_wrapcfun(g->s, sgb_load_sprite, 1, &g->gptr, 1));
+    solu_dobj_strset(load.dyn, "object", solu_wrapcfun(g->s, sgb_load_object, 2, &g->gptr, 1));
 
     solu_val draw = solu_dnew(g->s, SOLU_DOBJ);
     solu_dobj_strset(draw.dyn, "sprite", solu_wrapcfun(g->s, sgb_draw_sprite, 7, &g->gptr, 1));
@@ -305,6 +297,24 @@ solu_call_ex sgb_load_sprite(solu_state *s) {
 
     solu_valmap_set(&g->sprites, sf_str_cdup(name.dyn), out);
     return solu_ok(out);
+}
+
+solu_call_ex sgb_load_object(solu_state *s) {
+    solu_val type = solu_get(s, 0);
+    solu_val fields = solu_get(s, 1);
+    if (!solu_isdtype(type, SOLU_DSTR))
+        return solu_err(s, "arg 'name' expected str got %s", solu_typename(type).c_str);
+
+    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+    solu_val obj = sgb_object_new(g, g->id_c++, sf_ref(type.dyn));
+    if (solu_isdtype(obj, SOLU_DERR))
+        return solu_err(s, "Object [%u]:%s:load() error:\n-> %s\n", g->id_c - 1, (char *)type.dyn, (char *)obj.dyn);
+
+    sgb_callmethod(g, obj.dyn, "start");
+    if (solu_isdtype(fields, SOLU_DOBJ))
+        solu_dappend(obj, fields);
+
+    return solu_ok(obj);
 }
 
 solu_call_ex sgb_draw_sprite(solu_state *s) {
