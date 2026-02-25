@@ -5,10 +5,8 @@
 
 sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
     char *fpath = solu_findfile(spr_dir.c_str, name);
-    if (!fpath) {
-        free(fpath);
+    if (!fpath)
         return sgb_spr_ex_err(sf_str_fmt("Failed to load sprite '%s'", name));
-    }
 
     solu_compile_ex comp_ex = solu_cfile(s, fpath);
     free(fpath);
@@ -19,6 +17,7 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
         ));
 
     solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
+    solu_fproto_free(&comp_ex.ok);
     if (!call_ex.is_ok) {
         sf_str e = sf_str_fmt("Panic during manifest.solu: %s\n", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         if (call_ex.err.panic)

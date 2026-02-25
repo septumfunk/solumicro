@@ -45,14 +45,13 @@ bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
 }
 
 int sgb_changeroom(sgb_game *g, char *name) {
-    char *path = solu_findfile(g->room_dir.c_str, name);
-    if (!path) return -1;
-
     solu_val cache = solu_dobj_strget(g->load_cache.dyn, name);
     solu_val room = SOLU_NIL;
     if (solu_isdtype(cache, SOLU_DOBJ)) {
         room = cache;
     } else {
+        char *path = solu_findfile(g->room_dir.c_str, name);
+        if (!path) return -1;
         solu_compile_ex comp_ex = solu_cfile(g->s, path);
         if (!comp_ex.is_ok) {
             fprintf(stderr, "Unable to load %s: %s\n", path, solu_err_string(comp_ex.err.tt));
@@ -60,6 +59,7 @@ int sgb_changeroom(sgb_game *g, char *name) {
             return -1;
         }
         solu_call_ex call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
+        solu_fproto_free(&comp_ex.ok);
         if (!call_ex.is_ok) {
             fprintf(stderr, "Panic during room init: %s\n", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
             if (call_ex.err.panic)
@@ -69,18 +69,17 @@ int sgb_changeroom(sgb_game *g, char *name) {
         }
         room = call_ex.ok;
         solu_dobj_strset(g->load_cache.dyn, path, room);
+        free(path);
     }
     solu_val spawns = solu_dobj_strget(room.dyn, "spawns");
     if (!solu_isdtype(spawns, SOLU_DOBJ)) {
         fprintf(stderr, "Expected spawns:obj in room\n");
-        free(path);
         return -1;
     }
 
     solu_val r_name = solu_dobj_strget(room.dyn, "name");
     if (!solu_isdtype(r_name, SOLU_DSTR)) {
         fprintf(stderr, "Expected name:str in room\n");
-        free(path);
         return -1;
     }
 
@@ -124,11 +123,9 @@ int sgb_changeroom(sgb_game *g, char *name) {
             );
             if (call_ex.err.panic)
                 free(call_ex.err.panic);
-            free(path);
             return -1;
         }
     }
-    free(path);
     return 0;
 }
 

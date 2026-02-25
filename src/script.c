@@ -47,6 +47,7 @@ solu_val sgb_manifest_load(solu_state *s) {
     }
 
     solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
+        solu_fproto_free(&comp_ex.ok);
     if (!call_ex.is_ok) {
         sf_str e = sf_str_fmt("Panic during manifest.solu: %s\n", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         out = solu_dnerr(s, e.c_str);
@@ -137,6 +138,7 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     }
 
     solu_compile_ex comp_ex = solu_cfile(g->s, rp);
+    free(rp);
     if (!comp_ex.is_ok) {
         sf_str e = sf_str_fmt("Unable to load %s: %s\n", path.c_str, solu_err_string(comp_ex.err.tt));
         out = solu_dnerr(g->s, e.c_str);
@@ -145,6 +147,7 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     }
 
     solu_call_ex call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
+    solu_fproto_free(&comp_ex.ok);
     if (!call_ex.is_ok) {
         uint16_t line = SOLU_DBG_LINE(comp_ex.ok.dbg[call_ex.err.pc]);
         sf_str e = sf_str_fmt("Panic while loading gameobject:%u: %s\n", line, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
