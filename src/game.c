@@ -129,10 +129,19 @@ int sgb_changeroom(sgb_game *g, char *name) {
     return 0;
 }
 
+#if defined(_WIN32) || defined(_WIN64)
+    #include <direct.h>
+    #define MKDIR(path) _mkdir(path)
+#else
+    #include <sys/stat.h>
+    #include <sys/types.h>
+    #define MKDIR(path) mkdir(path, 0700)
+#endif
+
 static inline char *make_dir(char *path) {
     char *p = solu_realpath(path);
     if (!p) {
-        int status = mkdir(path, S_IRWXU);
+        int status = MKDIR(path);
         if (status || !(p = solu_realpath(path))) {
             fprintf(stderr, "Failed to create objects dir: %s\n", strerror(errno));
             return NULL;
