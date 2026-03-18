@@ -26,6 +26,10 @@ typedef struct {
     uint32_t frame_c;
 } sgb_spritedata;
 
+typedef struct {
+    Sound sound;
+} sgb_sounddata;
+
 static inline void sgb_spritedata_free(sgb_spritedata sprite) {
     sf_str_free(sprite.name);
     UnloadTexture(sprite.texture);
@@ -48,5 +52,7 @@ void _sgb_sprites_cleanup(sgb_sprites *);
 #define EXPECTED_E sf_str
 #include <sf/containers/expected.h>
 sgb_spr_ex sgb_open_sprite(solu_state *state, sf_str spr_dir, char *name);
+
+solu_val sgb_manifest_load(solu_state *state);
 
 #endif // ASSET_H

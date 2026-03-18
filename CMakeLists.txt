@@ -8,6 +8,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 project(solumicro C)
 add_executable(${PROJECT_NAME}
     src/game.c
+    src/log.c
     src/script.c
     src/asset.c
 )

@@ -1,7 +1,22 @@
 #include "asset.h"
+#include "log.h"
 #include "solus/val.h"
 #include <limits.h>
 #include <stdlib.h>
+
+const char SGB_DEFAULT_CONFIG[] = "{ \n\
+    title = 'solumicro'\n\
+    window = {\n\
+        width = 160\n\
+        height = 144\n\
+        scale = 3\n\
+    }\n\
+    path = {\n\
+        objects = 'scripts'\n\
+        rooms = 'rooms'\n\
+        sprites = 'sprites'\n\
+    }\n\
+}";
 
 sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
     char *fpath = solu_findfile(spr_dir.c_str, name);
@@ -19,13 +34,13 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
     solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
     solu_fproto_free(&comp_ex.ok);
     if (!call_ex.is_ok) {
-        sf_str e = sf_str_fmt("Panic during manifest.solu: %s\n", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
+        sf_str e = sf_str_fmt("Panic during manifest.solu: %s", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         if (call_ex.err.panic)
             free(call_ex.err.panic);
         return sgb_spr_ex_err(e);
     }
     if (!solu_isdtype(call_ex.ok, SOLU_DOBJ))
-        return sgb_spr_ex_err(sf_str_fmt("Expected sprite '%s' to return obj, got %s\n", name, solu_typename(call_ex.ok).c_str));
+        return sgb_spr_ex_err(sf_str_fmt("Expected sprite '%s' to return obj, got %s", name, solu_typename(call_ex.ok).c_str));
 
     solu_val frames = solu_dobj_strget(call_ex.ok.dyn, "frames");
     solu_val _auto = solu_dobj_strget(call_ex.ok.dyn, "auto");
@@ -166,6 +181,102 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
         }
     }
 
+    sgb_info("Loaded sprite '%s'.", name);
     spr.name = sf_str_cdup(name);
     return sgb_spr_ex_ok(spr);
+}
+
+solu_val sgb_manifest_load(solu_state *s) {
+    solu_val out = SOLU_NIL;
+
+    solu_compile_ex comp_ex = solu_cfile(s, "manifest.solu");
+    if (!comp_ex.is_ok) {
+        if (sf_file_exists(sf_lit("manifest.solu")))
+            return SOLU_NIL;
+        FILE *f = fopen("manifest.solu", "w");
+        if (!f) return SOLU_NIL;
+        fwrite(SGB_DEFAULT_CONFIG, 1, sizeof(SGB_DEFAULT_CONFIG) - 1, f);
+        fclose(f);
+        comp_ex = solu_csrc(s, (char *)SGB_DEFAULT_CONFIG);
+    }
+
+    solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
+        solu_fproto_free(&comp_ex.ok);
+    if (!call_ex.is_ok) {
+        sf_str e = sf_str_fmt("Panic during manifest.solu: %s", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        if (call_ex.err.panic)
+            free(call_ex.err.panic);
+        return out;
+    }
+    if (!solu_isdtype(call_ex.ok, SOLU_DOBJ)) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to return obj, got %s", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+
+    if (!solu_isdtype(solu_dobj_strget(call_ex.ok.dyn, "title"), SOLU_DSTR)) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain title:str", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+
+    solu_val window = solu_dobj_strget(call_ex.ok.dyn, "window");
+    if (!solu_isdtype(window, SOLU_DOBJ)) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain window:obj", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+    if (solu_dobj_strget(window.dyn, "width").tt != SOLU_TI64) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain window.width:i64", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+    if (solu_dobj_strget(window.dyn, "height").tt != SOLU_TI64) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain window.height:i64", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+    if (solu_dobj_strget(window.dyn, "scale").tt != SOLU_TI64) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain window.scale:i64", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+
+    solu_val path = solu_dobj_strget(call_ex.ok.dyn, "path");
+    if (!solu_isdtype(path, SOLU_DOBJ)) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain path:obj", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+
+    if (!solu_isdtype(solu_dobj_strget(path.dyn, "rooms"), SOLU_DSTR)) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain path.rooms:str", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+    if (!solu_isdtype(solu_dobj_strget(path.dyn, "objects"), SOLU_DSTR)) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain path.objects:str", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+    if (!solu_isdtype(solu_dobj_strget(path.dyn, "sprites"), SOLU_DSTR)) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain path.sprites:str", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+
+    solu_dhold(call_ex.ok);
+    return call_ex.ok;
 }

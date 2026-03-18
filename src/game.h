@@ -3,7 +3,6 @@
 
 #include <solus/vm.h>
 #include <raylib.h>
-#include "asset.h"
 
 typedef struct {
     solu_state *s;
@@ -13,15 +12,17 @@ typedef struct {
     sf_str title, room;
     uint32_t id_c;
 
-    bool drawing, gui;
+    bool paused, drawing, gui;
     bool roomchange, open;
     RenderTexture2D screen;
+    Color clear_color;
 
     solu_val ginfo, gptr;
-    solu_val objects, rooms;
+    solu_val objects, rooms, sprite;
     solu_valmap sprites;
     solu_val load_cache;
     sf_str room_dir, obj_dir, spr_dir;
+    bool err_pause;
 } sgb_game;
 
 sgb_game *sgb_game_new(void);

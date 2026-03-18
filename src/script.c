@@ -1,7 +1,7 @@
 #include "script.h"
 #include "asset.h"
 #include "game.h"
-#include "sf/containers/buffer.h"
+#include "log.h"
 #include "sf/str.h"
 #include "solus/bytecode.h"
 #include "solus/val.h"
@@ -11,121 +11,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-const char SGB_DEFAULT_CONFIG[] = "{ \n\
-    title = 'solumicro'\n\
-    resolution = {\n\
-        width = 160\n\
-        height = 144\n\
-        scale = 3\n\
-    }\n\
-    path = {\n\
-        objects = 'scripts'\n\
-        rooms = 'rooms'\n\
-        sprites = 'sprites'\n\
-    }\n\
-}";
-
 const char SGB_DEFAULT_ROOM[] = "{ \n\
     name = 'Room'\n\
     spawns = {\n\
         # 'foo',\n\
     }\n\
 }";
-
-solu_val sgb_manifest_load(solu_state *s) {
-    solu_val out = SOLU_NIL;
-
-    solu_compile_ex comp_ex = solu_cfile(s, "manifest.solu");
-    if (!comp_ex.is_ok) {
-        if (sf_file_exists(sf_lit("manifest.solu")))
-            return SOLU_NIL;
-        FILE *f = fopen("manifest.solu", "w");
-        if (!f) return SOLU_NIL;
-        fwrite(SGB_DEFAULT_CONFIG, 1, sizeof(SGB_DEFAULT_CONFIG) - 1, f);
-        fclose(f);
-        comp_ex = solu_csrc(s, (char *)SGB_DEFAULT_CONFIG);
-    }
-
-    solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
-        solu_fproto_free(&comp_ex.ok);
-    if (!call_ex.is_ok) {
-        sf_str e = sf_str_fmt("Panic during manifest.solu: %s\n", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        if (call_ex.err.panic)
-            free(call_ex.err.panic);
-        return out;
-    }
-    if (!solu_isdtype(call_ex.ok, SOLU_DOBJ)) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to return obj, got %s\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-
-    if (!solu_isdtype(solu_dobj_strget(call_ex.ok.dyn, "title"), SOLU_DSTR)) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain title:str\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-
-    solu_val resolution = solu_dobj_strget(call_ex.ok.dyn, "resolution");
-    if (!solu_isdtype(resolution, SOLU_DOBJ)) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain resolution:obj\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-    if (solu_dobj_strget(resolution.dyn, "width").tt != SOLU_TI64) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain resolution.width:i64\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-    if (solu_dobj_strget(resolution.dyn, "height").tt != SOLU_TI64) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain resolution.height:i64\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-    if (solu_dobj_strget(resolution.dyn, "scale").tt != SOLU_TI64) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain resolution.scale:i64\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-
-    solu_val path = solu_dobj_strget(call_ex.ok.dyn, "path");
-    if (!solu_isdtype(path, SOLU_DOBJ)) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain path:obj\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-
-    if (!solu_isdtype(solu_dobj_strget(path.dyn, "rooms"), SOLU_DSTR)) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain path.rooms:str\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-    if (!solu_isdtype(solu_dobj_strget(path.dyn, "objects"), SOLU_DSTR)) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain path.objects:str\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-    if (!solu_isdtype(solu_dobj_strget(path.dyn, "sprites"), SOLU_DSTR)) {
-        sf_str e = sf_str_fmt("Expected manifest.solu to contain path.sprites:str\n", solu_typename(call_ex.ok).c_str);
-        out = solu_dnerr(s, e.c_str);
-        sf_str_free(e);
-        return out;
-    }
-
-    solu_dhold(call_ex.ok);
-    return call_ex.ok;
-}
 
 solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     solu_val out = SOLU_NIL;
@@ -147,9 +38,9 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     }
 
     solu_call_ex call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
-    solu_fproto_free(&comp_ex.ok);
     if (!call_ex.is_ok) {
         uint16_t line = SOLU_DBG_LINE(comp_ex.ok.dbg[call_ex.err.pc]);
+        solu_fproto_free(&comp_ex.ok);
         sf_str e = sf_str_fmt("Panic while loading gameobject:%u: %s\n", line, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         out = solu_dnerr(g->s, e.c_str);
         sf_str_free(e);
@@ -157,6 +48,7 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
             free(call_ex.err.panic);
         return out;
     }
+    solu_fproto_free(&comp_ex.ok);
     if (!solu_isdtype(call_ex.ok, SOLU_DOBJ)) {
         sf_str e = sf_str_fmt("Expected gameobject to return obj, got %s\n", solu_typename(call_ex.ok).c_str);
         out = solu_dnerr(g->s, e.c_str);
@@ -183,15 +75,24 @@ void sgb_register(sgb_game *g) {
     solu_dobj_strset(draw.dyn, "sprite", solu_wrapcfun(g->s, sgb_draw_sprite, 7, &g->gptr, 1));
     solu_dobj_strset(draw.dyn, "rect", solu_wrapcfun(g->s, sgb_draw_rect, 5, &g->gptr, 1));
 
-    solu_val input = solu_dnew(g->s, SOLU_DOBJ);
-    solu_dobj_strset(input.dyn, "key_down", solu_wrapcfun(g->s, sgb_key_down, 1, NULL, 0));
-    solu_dobj_strset(input.dyn, "key_pressed", solu_wrapcfun(g->s, sgb_key_pressed, 1, NULL, 0));
-    solu_dobj_strset(input.dyn, "key_released", solu_wrapcfun(g->s, sgb_key_released, 1, NULL, 0));
+    solu_val key = sgb_keys(g->s);
+    solu_dobj_strset(key.dyn, "held", solu_wrapcfun(g->s, sgb_key_held, 1, NULL, 0));
+    solu_dobj_strset(key.dyn, "pressed", solu_wrapcfun(g->s, sgb_key_pressed, 1, NULL, 0));
+    solu_dobj_strset(key.dyn, "released", solu_wrapcfun(g->s, sgb_key_released, 1, NULL, 0));
 
-     solu_setg(g->s, "load", load);
+    solu_val mouse = sgb_mouse(g->s);
+    solu_dobj_strset(mouse.dyn, "held", solu_wrapcfun(g->s, sgb_mouse_held, 1, NULL, 0));
+    solu_dobj_strset(mouse.dyn, "pressed", solu_wrapcfun(g->s, sgb_mouse_pressed, 1, NULL, 0));
+    solu_dobj_strset(mouse.dyn, "wheel", solu_wrapcfun(g->s, sgb_mouse_wheel, 0, NULL, 0));
+
+    g->sprite = solu_dnew(g->s, SOLU_DOBJ);
+    solu_dhold(g->sprite);
+    solu_dobj_strset(g->sprite.dyn, "draw", solu_wrapmfun(g->s, sgb_draw_sprite, 7, &g->gptr, 1));
+
+    solu_setg(g->s, "load", load);
     solu_setg(g->s, "draw", draw);
-    solu_setg(g->s, "input", input);
-    solu_setg(g->s, "key", sgb_keys(g->s));
+    solu_setg(g->s, "key", key);
+    solu_setg(g->s, "mouse", mouse);
 }
 
 solu_call_ex sgb_quit(solu_state *s) {
@@ -255,10 +156,23 @@ solu_call_ex sgb_set_title(solu_state *s) {
     return solu_ok(val);
 }
 
+solu_call_ex sgb_set_paused(solu_state *s) {
+    sgb_game *g = *(sgb_game **)solu_capturec(s, 1).dyn;
+    solu_val val = solu_get(s, 0);
+    if (val.tt != SOLU_TBOOL)
+        return solu_err(s, "setter 'paused' expected bool got %s", solu_typename(val).c_str);
+
+    g->paused = val.boolean;
+    solu_dobj_strset(g->ginfo.dyn, "paused", val);
+    sgb_info("%s", val.boolean ? "Game paused." : "Game unpaused.");
+    return solu_ok(val);
+}
+
 static void sgb_spr_delete(void *_spr) {
-    sgb_spritedata *spr = _spr;
-    solu_valmap_delete(&((sgb_game *)spr->g)->sprites, spr->name);
-    sgb_spritedata_free(*spr);
+    sgb_spritedata **spr = _spr;
+    solu_valmap_delete(&((sgb_game *)(*spr)->g)->sprites, (*spr)->name);
+    sgb_info("Unloaded sprite '%s'.", (*spr)->name.c_str);
+    sgb_spritedata_free(**spr);
 }
 
 static solu_call_ex sgb_gwrap(solu_state *s) {
@@ -291,12 +205,22 @@ solu_call_ex sgb_load_sprite(solu_state *s) {
     solu_dobj_strset(info.dyn, "name", solu_dnstr(s, spr->name.c_str));
     solu_dobj_strset(info.dyn, "width", (solu_val){SOLU_TI64, .i64=spr->size.width});
     solu_dobj_strset(info.dyn, "height", (solu_val){SOLU_TI64, .i64=spr->size.height});
-    solu_dobj_strset(info.dyn, "frames", (solu_val){SOLU_TI64, .i64=spr->frame_c});
+    solu_val frames = solu_dnew(s, SOLU_DOBJ);
+    for (uint32_t i = 0; i < spr->frame_c; ++i) {
+        solu_val f = solu_dnew(s, SOLU_DOBJ);
+        solu_dobj_strset(f.dyn, "x", (solu_val){SOLU_TI64, .i64=spr->frames[i].x});
+        solu_dobj_strset(f.dyn, "y", (solu_val){SOLU_TI64, .i64=spr->frames[i].y});
+        solu_dobj_strset(f.dyn, "width", (solu_val){SOLU_TI64, .i64=spr->frames[i].width});
+        solu_dobj_strset(f.dyn, "height", (solu_val){SOLU_TI64, .i64=spr->frames[i].height});
+        solu_valvec_push(&((solu_dobj *)frames.dyn)->array, f);
+    }
+    solu_dobj_strset(info.dyn, "frames", frames);
 
     solu_val out = solu_dnusr(s, sizeof(sgb_spritedata *), "spr", &spr, sgb_spr_delete, NULL);
     solu_usrwrap *usr = solu_uheader(out);
-    usr->metafuns[SOLU_META_SET] = solu_wrapcfun(s, sgb_noset, 2, NULL, 0);
-    usr->metafuns[SOLU_META_GET] = solu_wrapcfun(s, sgb_gwrap, 1, &info, 1);
+    solu_dobj *infod = info.dyn;
+    infod->metafuns[SOLU_META_EXTEND] = g->sprite;
+    usr->metafuns[SOLU_META_EXTEND] = info;
 
     solu_valmap_set(&g->sprites, sf_str_cdup(name.dyn), out);
     return solu_ok(out);
@@ -321,7 +245,7 @@ solu_call_ex sgb_load_object(solu_state *s) {
 }
 
 solu_call_ex sgb_draw_sprite(solu_state *s) {
-    solu_val sprite = solu_get(s, 0);
+    solu_val sprite = solu_selfc(s);
     solu_val x = solu_get(s, 1);
     solu_val y = solu_get(s, 2);
     solu_val frame = solu_get(s, 3);
@@ -372,7 +296,7 @@ solu_call_ex sgb_draw_sprite(solu_state *s) {
         };
     }
 
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+    sgb_game *g = *(sgb_game **)solu_capturec(s, s->ccall->up_c - 1).dyn;
     if (!g->drawing)
         return solu_panic("Draw call outside of object:draw()");
 
@@ -391,8 +315,8 @@ solu_call_ex sgb_draw_sprite(solu_state *s) {
             (float)source.height * (yscale < 0 ? -1.0f : 1.0f),
         },
         (Rectangle){
-            (float)x.i64,
-            (float)y.i64,
+            g->gui ? (float)x.i64 : (float)(x.i64 - (solu_i64)g->camera.x),
+            g->gui ? (float)y.i64 : (float)(y.i64 - (solu_i64)g->camera.y),
             (float)source.width * fabsf(xscale),
             (float)source.height * fabsf(yscale)
         },
@@ -457,7 +381,7 @@ solu_call_ex sgb_draw_rect(solu_state *s) {
     return solu_ok(SOLU_NIL);
 }
 
-solu_call_ex sgb_key_down(solu_state *s) {
+solu_call_ex sgb_key_held(solu_state *s) {
     solu_val key = solu_get(s, 0);
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
@@ -476,6 +400,24 @@ solu_call_ex sgb_key_released(solu_state *s) {
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
     return solu_ok((solu_val){SOLU_TBOOL, .boolean=IsKeyReleased((int)key.i64)});
+}
+
+solu_call_ex sgb_mouse_wheel(solu_state *s) {
+    (void)s;
+    return solu_ok((solu_val){SOLU_TF64, .f64=GetMouseWheelMove()});
+}
+
+solu_call_ex sgb_mouse_held(solu_state *s) {
+    solu_val key = solu_get(s, 0);
+    if (key.tt != SOLU_TI64)
+        return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
+    return solu_ok((solu_val){SOLU_TBOOL, .boolean=IsMouseButtonDown((int)key.i64)});
+}
+solu_call_ex sgb_mouse_pressed(solu_state *s) {
+    solu_val key = solu_get(s, 0);
+    if (key.tt != SOLU_TI64)
+        return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
+    return solu_ok((solu_val){SOLU_TBOOL, .boolean=IsMouseButtonPressed((int)key.i64)});
 }
 
 solu_val sgb_keys(solu_state *s) {
@@ -590,4 +532,14 @@ solu_val sgb_keys(solu_state *s) {
     solu_dobj_strset(keys.dyn, "kp_equal",    (solu_val){SOLU_TI64, .i64=KEY_KP_EQUAL});
 
     return keys;
+}
+
+solu_val sgb_mouse(solu_state *s) {
+    solu_val mouse = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_strset(mouse.dyn, "left", (solu_val){SOLU_TI64, .i64=MOUSE_BUTTON_LEFT});
+    solu_dobj_strset(mouse.dyn, "middle", (solu_val){SOLU_TI64, .i64=MOUSE_BUTTON_MIDDLE});
+    solu_dobj_strset(mouse.dyn, "right", (solu_val){SOLU_TI64, .i64=MOUSE_BUTTON_RIGHT});
+    solu_dobj_strset(mouse.dyn, "forward", (solu_val){SOLU_TI64, .i64=MOUSE_BUTTON_FORWARD});
+    solu_dobj_strset(mouse.dyn, "back", (solu_val){SOLU_TI64, .i64=MOUSE_BUTTON_BACK});
+    return mouse;
 }

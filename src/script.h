@@ -11,7 +11,6 @@ typedef struct {
     bool drawn;
 } sgb_sprite;
 
-solu_val sgb_manifest_load(solu_state *state);
 solu_val sgb_object_new(sgb_game *game, solu_i64 id, sf_str path);
 void sgb_register(sgb_game *game);
 
@@ -22,6 +21,7 @@ solu_call_ex sgb_noset(solu_state *state);
 
 solu_call_ex sgb_set_room(solu_state *state);
 solu_call_ex sgb_set_title(solu_state *state);
+solu_call_ex sgb_set_paused(solu_state *state);
 
 solu_call_ex sgb_load_sprite(solu_state *state);
 solu_call_ex sgb_load_object(solu_state *state);
@@ -29,10 +29,15 @@ solu_call_ex sgb_load_object(solu_state *state);
 solu_call_ex sgb_draw_sprite(solu_state *state);
 solu_call_ex sgb_draw_rect(solu_state *state);
 
-solu_call_ex sgb_key_down(solu_state *state);
+solu_call_ex sgb_key_held(solu_state *state);
 solu_call_ex sgb_key_pressed(solu_state *state);
 solu_call_ex sgb_key_released(solu_state *state);
 
+solu_call_ex sgb_mouse_wheel(solu_state *state);
+solu_call_ex sgb_mouse_held(solu_state *state);
+solu_call_ex sgb_mouse_pressed(solu_state *state);
+
 solu_val sgb_keys(solu_state *state);
+solu_val sgb_mouse(solu_state *state);
 
 #endif // CONFIG_H
