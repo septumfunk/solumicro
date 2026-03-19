@@ -3,6 +3,7 @@ scripts
 rooms
 sprites
 build
+build*
 *.exe
 build/*
 .cache

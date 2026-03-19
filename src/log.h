@@ -10,7 +10,7 @@
     #define TUI_ERR    "\x1b[1;31m"  // bright red
     #define TUI_INFO   "\x1b[0;90m"  // gray
 #else
-    #define TUI_RESET  ""
+    #define TUI_CLEAR  ""
     #define TUI_ERR    ""
     #define TUI_INFO   ""
 #endif
