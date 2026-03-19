@@ -428,6 +428,7 @@ int sgb_game_run(void) {
 
         sort_c = om->array.count;
         sort_c = om->array.count;
+        memset(sort, 0, sizeof(sgb_draw) * pc);
         if (!sort || sort_c > pc) {
             free(sort);
             pc = sort_c;
