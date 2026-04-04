@@ -29,9 +29,14 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     }
 
     solu_compile_ex comp_ex = solu_cfile(g->s, rp);
-    free(rp);
     if (!comp_ex.is_ok) {
-        sf_str e = sf_str_fmt("Unable to load %s: %s\n", path.c_str, solu_err_string(comp_ex.err.tt));
+        sf_str e = sf_str_fmt(
+            TUI_ERR "Object %s:load() error:\n[" TUI_CLEAR "%s:%d:%d" TUI_ERR "]\n-> %s\n\n" TUI_CLEAR,
+            path.c_str, rp,
+            comp_ex.err.line, comp_ex.err.column,
+            solu_err_string(comp_ex.err.tt)
+        );
+        free(rp);
         out = solu_dnerr(g->s, e.c_str);
         sf_str_free(e);
         return out;
@@ -39,15 +44,28 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
 
     solu_call_ex call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
     if (!call_ex.is_ok) {
-        uint16_t line = SOLU_DBG_LINE(comp_ex.ok.dbg[call_ex.err.pc]);
+        sf_str e;
+        if (g->s->ecall->dbg && g->s->ecall->file_name.len > 0)
+            e = sf_str_fmt(
+                TUI_ERR "Object %s:load() error:\n[" TUI_CLEAR "%s:%d:%d" TUI_ERR "]\n-> %s\n\n" TUI_CLEAR,
+                path.c_str, rp,
+                SOLU_DBG_LINE(g->s->ecall->dbg[call_ex.err.pc]), SOLU_DBG_COL(g->s->ecall->dbg[call_ex.err.pc]),
+                call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
+            );
+        else e = sf_str_fmt(
+            TUI_ERR "Object %s:load() error:\n[" TUI_CLEAR "%s" TUI_ERR "]\n-> %s\n\n" TUI_CLEAR,
+            path.c_str, rp,
+            call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
+        );
+        free(rp);
         solu_fproto_free(&comp_ex.ok);
-        sf_str e = sf_str_fmt("Panic while loading gameobject:%u: %s\n", line, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         out = solu_dnerr(g->s, e.c_str);
         sf_str_free(e);
         if (call_ex.err.panic)
             free(call_ex.err.panic);
         return out;
     }
+    free(rp);
     solu_fproto_free(&comp_ex.ok);
     if (!solu_isdtype(call_ex.ok, SOLU_DOBJ)) {
         sf_str e = sf_str_fmt("Expected gameobject to return obj, got %s\n", solu_typename(call_ex.ok).c_str);
@@ -63,12 +81,17 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     solu_dobj_strset(out.dyn, "type", solu_dnstr(g->s, path.c_str));
     solu_dobj_set(g->s, g->objects.dyn, idv, out);
 
+    // Member Fun
+    solu_dobj_strset(out.dyn, "delete", solu_wrapmfun(g->s, sgb_delete, 1, &g->gptr, 1));
+
     return out;
 }
 
 void sgb_register(sgb_game *g) {
     solu_val load = solu_dnew(g->s, SOLU_DOBJ);
     solu_dobj_strset(load.dyn, "sprite", solu_wrapcfun(g->s, sgb_load_sprite, 1, &g->gptr, 1));
+    solu_dobj_strset(load.dyn, "sound", solu_wrapcfun(g->s, sgb_load_sound, 1, &g->gptr, 1));
+    solu_dobj_strset(load.dyn, "music", solu_wrapcfun(g->s, sgb_load_music, 1, &g->gptr, 1));
     solu_dobj_strset(load.dyn, "object", solu_wrapcfun(g->s, sgb_load_object, 2, &g->gptr, 1));
 
     solu_val draw = solu_dnew(g->s, SOLU_DOBJ);
@@ -79,15 +102,26 @@ void sgb_register(sgb_game *g) {
     solu_dobj_strset(key.dyn, "held", solu_wrapcfun(g->s, sgb_key_held, 1, NULL, 0));
     solu_dobj_strset(key.dyn, "pressed", solu_wrapcfun(g->s, sgb_key_pressed, 1, NULL, 0));
     solu_dobj_strset(key.dyn, "released", solu_wrapcfun(g->s, sgb_key_released, 1, NULL, 0));
+    solu_dobj_strset(key.dyn, "string", solu_wrapcfun(g->s, sgb_key_string, 0, NULL, 0));
 
     solu_val mouse = sgb_mouse(g->s);
     solu_dobj_strset(mouse.dyn, "held", solu_wrapcfun(g->s, sgb_mouse_held, 1, NULL, 0));
     solu_dobj_strset(mouse.dyn, "pressed", solu_wrapcfun(g->s, sgb_mouse_pressed, 1, NULL, 0));
+    solu_dobj_strset(mouse.dyn, "released", solu_wrapcfun(g->s, sgb_mouse_released, 1, NULL, 0));
     solu_dobj_strset(mouse.dyn, "wheel", solu_wrapcfun(g->s, sgb_mouse_wheel, 0, NULL, 0));
 
     g->sprite = solu_dnew(g->s, SOLU_DOBJ);
     solu_dhold(g->sprite);
     solu_dobj_strset(g->sprite.dyn, "draw", solu_wrapmfun(g->s, sgb_draw_sprite, 7, &g->gptr, 1));
+
+    g->snd = solu_dnew(g->s, SOLU_DOBJ);
+    solu_dhold(g->snd);
+    solu_dobj_strset(g->snd.dyn, "play", solu_wrapmfun(g->s, sgb_snd_play, 0, &g->gptr, 1));
+    solu_dobj_strset(g->snd.dyn, "is_playing", solu_wrapmfun(g->s, sgb_snd_is_playing, 0, &g->gptr, 1));
+    solu_dobj_strset(g->snd.dyn, "stop", solu_wrapmfun(g->s, sgb_snd_stop, 0, &g->gptr, 1));
+
+    // Globals
+    solu_setg(g->s, "delete", solu_wrapcfun(g->s, sgb_delete, 1, &g->gptr, 1));
 
     solu_setg(g->s, "load", load);
     solu_setg(g->s, "draw", draw);
@@ -101,19 +135,46 @@ solu_call_ex sgb_quit(solu_state *s) {
     return solu_ok(SOLU_NIL);
 }
 
+solu_call_ex sgb_delete(solu_state *s) {
+    solu_val self = solu_selfc(s);
+    if (!solu_isdtype(self, SOLU_DOBJ))
+        return solu_panic("arg 'self' expected obj, found %s", solu_typename(self).c_str);
+    solu_val id = solu_dobj_strget(self.dyn, "id");
+    if (id.tt != SOLU_TI64)
+        return solu_panic("self.id expected i64, found %s", solu_typename(self).c_str);
+    sgb_game *g = *(sgb_game **)solu_capturec(s, 1).dyn;
+    solu_dobj *d = g->objects.dyn;
+    if (id.i64 < 0 || id.i64 > d->array.count - 1 || id.i64 > UINT32_MAX)
+        return solu_panic("self.id is invalid");
+    sgb_callmethod(g, self.dyn, "cleanup");
+    solu_valvec_set(&((solu_dobj *)g->objects.dyn)->array, (uint32_t)id.i64, SOLU_NIL);
+    return solu_ok(SOLU_NIL);
+}
+
 solu_call_ex sgb_set(solu_state *s) {
     solu_val key = solu_get(s, 0);
     solu_val val = solu_get(s, 1);
     if (!solu_isdtype(key, SOLU_DSTR))
         return solu_panic("arg 'key' expected str got %s", solu_typename(key).c_str);
 
-    solu_dobj *obj = solu_capturec(s, 0).dyn;
-    solu_dobj *m_obj = obj->meta.dyn;
-    if (!obj || !m_obj) return solu_panic("Game Corrupt");
-    solu_dobj *set = solu_dobj_strget(m_obj, "set").dyn;
-    if (!set) return solu_panic("Game Corrupt");
+    solu_val cap = solu_capturec(s, 0);
+    solu_dobj *set;
+    solu_val f;
+    if (solu_isdtype(cap, SOLU_DOBJ)) {
+        solu_dobj *obj = cap.dyn;
+        solu_dobj *m_obj = obj->meta.dyn;
+        if (!obj || !m_obj) return solu_panic("Game Corrupt");
+        set = solu_dobj_strget(m_obj, "set").dyn;
+        if (!set) return solu_panic("Game Corrupt");
+        f = solu_dobj_strget(set, key.dyn);
+    } else {
+        set = solu_dobj_strget(solu_uheader(cap)->metafuns[SOLU_META_EXTEND].dyn, "set").dyn;
+        if (!set) return solu_panic("Game Corrupt");
+        f = solu_dobj_strget(set, key.dyn);
+        solu_fproto *fp = f.dyn;
+        fp->upvals[0].value = cap;
+    }
 
-    solu_val f = solu_dobj_strget(set, key.dyn);
     if (!solu_isdtype(f, SOLU_DFUN))
         return solu_panic("key '%s' not found", key.dyn);
     return solu_call(s, f.dyn, (solu_val[]){val}, 1);
@@ -134,6 +195,7 @@ solu_call_ex sgb_set_room(solu_state *s) {
         return solu_ok(val);
     if (sgb_changeroom(g, val.dyn))
         return solu_err(s, "failed to change to room '%s'", val.dyn);
+    solu_val v = solu_capturec(s, 0); (void)v;
     solu_dobj_strset(solu_capturec(s, 0).dyn, "room", solu_dnstr(s, g->room.c_str));
     g->roomchange = true;
 
@@ -169,10 +231,16 @@ solu_call_ex sgb_set_paused(solu_state *s) {
 }
 
 static void sgb_spr_delete(void *_spr) {
-    sgb_spritedata **spr = _spr;
-    solu_valmap_delete(&((sgb_game *)(*spr)->g)->sprites, (*spr)->name);
-    sgb_info("Unloaded sprite '%s'.", (*spr)->name.c_str);
-    sgb_spritedata_free(**spr);
+    sgb_spritedata *spr = *(sgb_spritedata **)_spr;
+    solu_valmap_delete(&((sgb_game *)spr->g)->spr_cache, spr->name);
+    sgb_info("Unloaded sprite '%s'.", spr->name.c_str);
+    sgb_spritedata_free(*spr);
+}
+static void sgb_sfx_delete(void *_sfx) {
+    sgb_sounddata *sfx = *(sgb_sounddata **)_sfx;
+    if (sfx->tt == SGB_MUSIC)
+        solu_valmap_delete(&((sgb_game *)sfx->g)->mus_cache, sfx->name);
+    sgb_info("Unloaded %s '%s'.", sfx->tt == SGB_MUSIC ? "music" : "sound", sfx->name.c_str);
 }
 
 static solu_call_ex sgb_gwrap(solu_state *s) {
@@ -185,8 +253,8 @@ solu_call_ex sgb_load_sprite(solu_state *s) {
         return solu_err(s, "arg 'name' expected str got %s", solu_typename(name).c_str);
 
     sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
-    solu_valmap_ex exists = solu_valmap_get(&g->sprites, sf_ref(name.dyn));
-    if (exists.is_ok && solu_isutype(exists.ok, sf_lit("spr")))
+    solu_valmap_ex exists = solu_valmap_get(&g->spr_cache, sf_ref(name.dyn));
+    if (exists.is_ok)
         return solu_ok(exists.ok);
 
     sgb_spr_ex ex = sgb_open_sprite(s, g->spr_dir, name.dyn);
@@ -222,7 +290,90 @@ solu_call_ex sgb_load_sprite(solu_state *s) {
     infod->metafuns[SOLU_META_EXTEND] = g->sprite;
     usr->metafuns[SOLU_META_EXTEND] = info;
 
-    solu_valmap_set(&g->sprites, sf_str_cdup(name.dyn), out);
+    solu_valmap_set(&g->spr_cache, sf_str_cdup(name.dyn), out);
+    return solu_ok(out);
+}
+
+solu_call_ex sgb_load_sound(solu_state *s) {
+    solu_val name = solu_get(s, 0);
+    if (!solu_isdtype(name, SOLU_DSTR))
+        return solu_err(s, "arg 'name' expected str got %s", solu_typename(name).c_str);
+
+    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+    sgb_snd_ex ex = sgb_open_sound(g->snd_dir, name.dyn);
+    if (!ex.is_ok) {
+        if (!ex.is_ok) {
+            solu_call_ex res = solu_panic("%s", ex.err.c_str);
+            sf_str_free(ex.err);
+            return res;
+        }
+    }
+    sgb_sounddata *sfx = malloc(sizeof(sgb_sounddata));
+    *sfx = ex.ok;
+    sfx->g = g;
+
+    solu_val info = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_strset(info.dyn, "name", solu_dnstr(s, sfx->name.c_str));
+    solu_dobj_strset(info.dyn, "volume", (solu_val){SOLU_TF64, .f64=1.0});
+
+    solu_val out = solu_dnusr(s, sizeof(sgb_spritedata *), "sfx", &sfx, sgb_sfx_delete, NULL);
+    solu_usrwrap *usr = solu_uheader(out);
+    solu_dobj *infod = info.dyn;
+    infod->meta = solu_dnew(s, SOLU_DOBJ);
+    infod->metafuns[SOLU_META_EXTEND] = g->snd;
+    usr->metafuns[SOLU_META_EXTEND] = info;
+
+    solu_val set = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_strset(set.dyn, "volume", solu_wrapmfun(s, sgb_snd_volume, 1, NULL, 0));
+
+    solu_dobj_strset(info.dyn, "set", set);
+    usr->metafuns[SOLU_META_SET] = solu_wrapcfun(s, sgb_set, 2, (solu_val[]){out, g->gptr}, 2);
+    return solu_ok(out);
+}
+
+solu_call_ex sgb_load_music(solu_state *s) {
+    solu_val name = solu_get(s, 0);
+    if (!solu_isdtype(name, SOLU_DSTR))
+        return solu_err(s, "arg 'name' expected str got %s", solu_typename(name).c_str);
+
+    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+    solu_valmap_ex exists = solu_valmap_get(&g->mus_cache, sf_ref(name.dyn));
+    if (exists.is_ok && solu_isutype(exists.ok, sf_lit("mus")))
+        return solu_ok(exists.ok);
+
+    sgb_snd_ex ex = sgb_open_music(s, g->snd_dir, name.dyn);
+    if (!ex.is_ok) {
+        if (!ex.is_ok) {
+            solu_call_ex res = solu_panic("%s", ex.err.c_str);
+            sf_str_free(ex.err);
+            return res;
+        }
+    }
+    sgb_sounddata *sfx = malloc(sizeof(sgb_sounddata));
+    *sfx = ex.ok;
+    sfx->g = g;
+
+    solu_val info = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_strset(info.dyn, "name", solu_dnstr(s, sfx->name.c_str));
+    solu_dobj_strset(info.dyn, "len", (solu_val){SOLU_TF64, .f64=GetMusicTimeLength(ex.ok.music)});
+    solu_dobj_strset(info.dyn, "volume", (solu_val){SOLU_TF64, .f64=ex.ok.default_volume});
+    solu_dobj_strset(info.dyn, "loop", (solu_val){SOLU_TBOOL, .boolean=true});
+    sfx->music.looping = true;
+
+    solu_val out = solu_dnusr(s, sizeof(sgb_spritedata *), "mus", &sfx, sgb_sfx_delete, NULL);
+    solu_usrwrap *usr = solu_uheader(out);
+    solu_dobj *infod = info.dyn;
+    infod->metafuns[SOLU_META_EXTEND] = g->snd;
+    usr->metafuns[SOLU_META_EXTEND] = info;
+
+    solu_val set = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_strset(set.dyn, "volume", solu_wrapmfun(s, sgb_snd_volume, 1, NULL, 0));
+    solu_dobj_strset(set.dyn, "loop", solu_wrapmfun(s, sgb_snd_loop, 1, NULL, 0));
+
+    solu_dobj_strset(info.dyn, "set", set);
+    usr->metafuns[SOLU_META_SET] = solu_wrapcfun(s, sgb_set, 2, (solu_val[]){out, g->gptr}, 2);
+
+    solu_valmap_set(&g->mus_cache, sf_str_cdup(name.dyn), out);
     return solu_ok(out);
 }
 
@@ -381,6 +532,68 @@ solu_call_ex sgb_draw_rect(solu_state *s) {
     return solu_ok(SOLU_NIL);
 }
 
+solu_call_ex sgb_snd_play(solu_state *s) {
+    solu_val sfx = solu_selfc(s);
+    if (!solu_isutype(sfx, sf_lit("sfx")) && !solu_isutype(sfx, sf_lit("mus")))
+        return solu_panic("'self' expected sfx|mus got %s", solu_typename(sfx).c_str);
+    if (!IsAudioDeviceReady())
+        return solu_panic("Audio device is not ready!");
+    sgb_sounddata *snd = *(sgb_sounddata **)sfx.dyn;
+
+    solu_val volume = solu_dobj_strget(solu_uheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "volume");
+    if (volume.tt == SOLU_TF64)
+        snd->tt == SGB_MUSIC ? SetMusicVolume(snd->music, (float)volume.f64) :
+        SetSoundVolume(snd->sound, (float)volume.f64);
+
+    snd->tt == SGB_MUSIC ? PlayMusicStream(snd->music) : PlaySound(snd->sound);
+    return solu_ok(SOLU_NIL);
+}
+
+solu_call_ex sgb_snd_is_playing(solu_state *s) {
+    solu_val sfx = solu_selfc(s);
+    if (!solu_isutype(sfx, sf_lit("sfx")) && !solu_isutype(sfx, sf_lit("mus")))
+        return solu_panic("'self' expected sfx|mus got %s", solu_typename(sfx).c_str);
+    sgb_sounddata *snd = *(sgb_sounddata **)sfx.dyn;
+    return solu_ok((solu_val){ SOLU_TBOOL,
+        .boolean = snd->tt == SGB_MUSIC ? IsMusicStreamPlaying(snd->music) : IsSoundPlaying(snd->sound)
+    });
+}
+
+solu_call_ex sgb_snd_stop(solu_state *s) {
+    solu_val sfx = solu_selfc(s);
+    if (!solu_isutype(sfx, sf_lit("sfx")) && !solu_isutype(sfx, sf_lit("mus")))
+        return solu_panic("'self' expected sfx|mus got %s", solu_typename(sfx).c_str);
+    sgb_sounddata *snd = *(sgb_sounddata **)sfx.dyn;
+    snd->tt == SGB_MUSIC ? StopMusicStream(snd->music) : StopSound(snd->sound);
+    return solu_ok(SOLU_NIL);
+}
+
+solu_call_ex sgb_snd_volume(solu_state *s) {
+    solu_val sfx = solu_selfc(s);
+    if (!solu_isutype(sfx, sf_lit("sfx")) && !solu_isutype(sfx, sf_lit("mus")))
+        return solu_panic("'self' expected sfx|mus got %s", solu_typename(sfx).c_str);
+    solu_val volume = solu_get(s, 0);
+    if (volume.tt != SOLU_TF64)
+        return solu_panic("arg 'volume' expectected f64 got %s", solu_typename(volume).c_str);
+    sgb_sounddata *snd = *(sgb_sounddata **)sfx.dyn;
+    snd->tt == SGB_MUSIC ? SetMusicVolume(snd->music, (float)volume.f64) : SetSoundVolume(snd->sound, (float)volume.f64);
+    solu_dobj_strset(solu_uheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "volume", volume);
+    return solu_ok(SOLU_NIL);
+}
+
+solu_call_ex sgb_snd_loop(solu_state *s) {
+    solu_val sfx = solu_selfc(s);
+    if (!solu_isutype(sfx, sf_lit("sfx")) && !solu_isutype(sfx, sf_lit("mus")))
+        return solu_panic("'self' expected sfx|mus got %s", solu_typename(sfx).c_str);
+    solu_val loop = solu_get(s, 0);
+    if (loop.tt != SOLU_TBOOL)
+        return solu_panic("arg 'loop' expectected bool got %s", solu_typename(loop).c_str);
+    sgb_sounddata *snd = *(sgb_sounddata **)sfx.dyn;
+    snd->music.looping = loop.boolean;
+    solu_dobj_strset(solu_uheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "loop", loop);
+    return solu_ok(SOLU_NIL);
+}
+
 solu_call_ex sgb_key_held(solu_state *s) {
     solu_val key = solu_get(s, 0);
     if (key.tt != SOLU_TI64)
@@ -402,6 +615,22 @@ solu_call_ex sgb_key_released(solu_state *s) {
     return solu_ok((solu_val){SOLU_TBOOL, .boolean=IsKeyReleased((int)key.i64)});
 }
 
+solu_call_ex sgb_key_string(solu_state *s) {
+    size_t len = 16, cur = 0;
+    char *str = calloc(len, 1);
+    for (int ch = GetCharPressed(); ch > 0; ch = GetCharPressed()) {
+        if ((ch >= 32) && (ch <= 126)) {
+            if (cur >= len - 1)
+                str = realloc(str, len *= 2);
+            str[cur++] = (char)ch;
+            str[cur] = '\0';
+        }
+    }
+    solu_val kstr = solu_dnstr(s, str);
+    free(str);
+    return solu_ok(kstr);
+}
+
 solu_call_ex sgb_mouse_wheel(solu_state *s) {
     (void)s;
     return solu_ok((solu_val){SOLU_TF64, .f64=GetMouseWheelMove()});
@@ -418,6 +647,12 @@ solu_call_ex sgb_mouse_pressed(solu_state *s) {
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
     return solu_ok((solu_val){SOLU_TBOOL, .boolean=IsMouseButtonPressed((int)key.i64)});
+}
+solu_call_ex sgb_mouse_released(solu_state *s) {
+    solu_val key = solu_get(s, 0);
+    if (key.tt != SOLU_TI64)
+        return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
+    return solu_ok((solu_val){SOLU_TBOOL, .boolean=IsMouseButtonReleased((int)key.i64)});
 }
 
 solu_val sgb_keys(solu_state *s) {
@@ -450,7 +685,7 @@ solu_val sgb_keys(solu_state *s) {
     solu_dobj_strset(keys.dyn, "y", (solu_val){SOLU_TI64, .i64=KEY_Y});
     solu_dobj_strset(keys.dyn, "z", (solu_val){SOLU_TI64, .i64=KEY_Z});
 
-    // Numbers (top row)
+    // Numbers
     solu_dobj_strset(keys.dyn, "zero",  (solu_val){SOLU_TI64, .i64=KEY_ZERO});
     solu_dobj_strset(keys.dyn, "one",   (solu_val){SOLU_TI64, .i64=KEY_ONE});
     solu_dobj_strset(keys.dyn, "two",   (solu_val){SOLU_TI64, .i64=KEY_TWO});
@@ -465,6 +700,7 @@ solu_val sgb_keys(solu_state *s) {
     solu_dobj_strset(keys.dyn, "minus",  (solu_val){SOLU_TI64, .i64=KEY_MINUS});
 
     // Function keys
+    solu_dobj_strset(keys.dyn, "tilde",  (solu_val){SOLU_TI64, .i64=KEY_GRAVE});
     solu_dobj_strset(keys.dyn, "f1",  (solu_val){SOLU_TI64, .i64=KEY_F1});
     solu_dobj_strset(keys.dyn, "f2",  (solu_val){SOLU_TI64, .i64=KEY_F2});
     solu_dobj_strset(keys.dyn, "f3",  (solu_val){SOLU_TI64, .i64=KEY_F3});

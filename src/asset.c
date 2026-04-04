@@ -1,10 +1,12 @@
 #include "asset.h"
 #include "log.h"
+#include "sf/str.h"
 #include "solus/val.h"
 #include <limits.h>
+#include <raylib.h>
 #include <stdlib.h>
 
-const char SGB_DEFAULT_CONFIG[] = "{ \n\
+const char SGB_DEFAULT_CONFIG[] = "{\n\
     title = 'solumicro'\n\
     window = {\n\
         width = 160\n\
@@ -15,6 +17,7 @@ const char SGB_DEFAULT_CONFIG[] = "{ \n\
         objects = 'scripts'\n\
         rooms = 'rooms'\n\
         sprites = 'sprites'\n\
+        sounds = 'sounds'\n\
     }\n\
 }";
 
@@ -34,7 +37,7 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
     solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
     solu_fproto_free(&comp_ex.ok);
     if (!call_ex.is_ok) {
-        sf_str e = sf_str_fmt("Panic during manifest.solu: %s", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
+        sf_str e = sf_str_fmt("Panic during sprite '%s': %s", name, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         if (call_ex.err.panic)
             free(call_ex.err.panic);
         return sgb_spr_ex_err(e);
@@ -186,6 +189,76 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
     return sgb_spr_ex_ok(spr);
 }
 
+sgb_snd_ex sgb_open_sound(sf_str snd_dir, char *name) {
+    sf_str path = sf_str_join(snd_dir, sf_lit("/"));
+    sf_str_append(&path, sf_ref(name));
+    Sound snd = LoadSound(path.c_str);
+    sf_str_free(path);
+    if (!IsSoundValid(snd))
+        return sgb_snd_ex_err(sf_str_fmt("Failed to load sound '%s'", name));
+    return sgb_snd_ex_ok((sgb_sounddata){
+        .tt = SGB_SOUND,
+        .sound = snd,
+        .name = sf_str_cdup(name),
+    });
+}
+
+sgb_snd_ex sgb_open_music(solu_state *s, sf_str snd_dir, char *name) {
+    char *fpath = solu_findfile(snd_dir.c_str, name);
+    if (!fpath)
+        return sgb_snd_ex_err(sf_str_fmt("Failed to load music '%s'", name));
+
+    solu_compile_ex comp_ex = solu_cfile(s, fpath);
+    free(fpath);
+    if (!comp_ex.is_ok)
+        return sgb_snd_ex_err(sf_str_fmt(
+            "Failed to compile music '%s': %s",
+            name, solu_err_string(comp_ex.err.tt)
+        ));
+
+    solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
+    solu_fproto_free(&comp_ex.ok);
+    if (!call_ex.is_ok) {
+        sf_str e = sf_str_fmt("Panic during music '%s': %s", name, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
+        if (call_ex.err.panic)
+            free(call_ex.err.panic);
+        return sgb_snd_ex_err(e);
+    }
+    if (!solu_isdtype(call_ex.ok, SOLU_DOBJ))
+        return sgb_snd_ex_err(sf_str_fmt("Expected music '%s' to return obj, got %s", name, solu_typename(call_ex.ok).c_str));
+
+    solu_val source = solu_dobj_strget(call_ex.ok.dyn, "source");
+    if (!solu_isdtype(source, SOLU_DSTR))
+        return sgb_snd_ex_err(sf_str_fmt("Expected music '%s' to contain source:str", name));
+
+    sf_str join = sf_str_join(snd_dir, sf_lit("/"));
+    sf_str j2 = sf_str_join(join, sf_ref(source.dyn));
+    sf_str_free(join);
+    join = j2;
+
+    char *spath = solu_realpath(join.c_str);
+    sf_str_free(join);
+    if (!spath)
+        return sgb_snd_ex_err(sf_str_fmt("Failed to find music '%s' source sound '%s'", name, source.dyn));
+
+    Music mus = LoadMusicStream(spath);
+    free(spath);
+    if (!IsMusicValid(mus))
+        return sgb_snd_ex_err(sf_str_fmt("Failed to load music '%s'", name));
+
+    solu_val volume = solu_dobj_strget(call_ex.ok.dyn, "volume");
+    solu_val loop = solu_dobj_strget(call_ex.ok.dyn, "loop");
+    if (loop.tt == SOLU_TBOOL)
+        mus.looping = loop.boolean;
+
+    return sgb_snd_ex_ok((sgb_sounddata){
+        .tt = SGB_MUSIC,
+        .music = mus,
+        .name = sf_str_cdup(name),
+        .default_volume = volume.tt == SOLU_TF64 ? volume.f64 : 1,
+    });
+}
+
 solu_val sgb_manifest_load(solu_state *s) {
     solu_val out = SOLU_NIL;
 
@@ -272,6 +345,12 @@ solu_val sgb_manifest_load(solu_state *s) {
     }
     if (!solu_isdtype(solu_dobj_strget(path.dyn, "sprites"), SOLU_DSTR)) {
         sf_str e = sf_str_fmt("Expected manifest.solu to contain path.sprites:str", solu_typename(call_ex.ok).c_str);
+        out = solu_dnerr(s, e.c_str);
+        sf_str_free(e);
+        return out;
+    }
+    if (!solu_isdtype(solu_dobj_strget(path.dyn, "sounds"), SOLU_DSTR)) {
+        sf_str e = sf_str_fmt("Expected manifest.solu to contain path.sounds:str", solu_typename(call_ex.ok).c_str);
         out = solu_dnerr(s, e.c_str);
         sf_str_free(e);
         return out;

@@ -35,16 +35,22 @@ bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
     if (solu_isdtype(update, SOLU_DFUN)) {
         solu_call_ex call_ex = solu_call(g->s, update.dyn, NULL, 0);
         if (!call_ex.is_ok) {
-            solu_val id = solu_dobj_strget(obj, "id");
             solu_val type = solu_dobj_strget(obj, "type");
-            uint16_t line = SOLU_DBG_LINE(((solu_fproto *)update.dyn)->dbg[call_ex.err.pc]);
-            uint16_t column = SOLU_DBG_COL(((solu_fproto *)update.dyn)->dbg[call_ex.err.pc]);
-            sgb_err("Object [%lld]:%s:%s():%d:%d error:\n-> %s",
-                id.tt == SOLU_TI64 ? id.i64 : -1,
+
+            if (g->s->ecall->dbg && g->s->ecall->file_name.len > 0)
+                fprintf(stderr,
+                    TUI_ERR "Object %s:%s() error:\n[" TUI_CLEAR "%s:%d:%d" TUI_ERR "]\n-> %s\n\n" TUI_CLEAR,
+                    solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
+                    name, g->s->ecall->file_name.c_str,
+                    SOLU_DBG_LINE(g->s->ecall->dbg[call_ex.err.pc]), SOLU_DBG_COL(g->s->ecall->dbg[call_ex.err.pc]),
+                    call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
+                );
+            else fprintf(stderr,
+                TUI_ERR "Object %s:%s() error:\n-> %s\n\n" TUI_CLEAR,
                 solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
-                name, line, column,
-                call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
+                name, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
             );
+
             if (call_ex.err.panic)
                 free(call_ex.err.panic);
             if (g->err_pause)
@@ -58,6 +64,7 @@ bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
 }
 
 int sgb_changeroom(sgb_game *g, char *name) {
+    g->camera = (sf_vec2){0, 0};
     solu_val cache = solu_dobj_strget(g->load_cache.dyn, name);
     solu_val room = SOLU_NIL;
     if (solu_isdtype(cache, SOLU_DOBJ)) {
@@ -117,7 +124,7 @@ int sgb_changeroom(sgb_game *g, char *name) {
 
         solu_val obj = sgb_object_new(g, g->id_c++, sf_ref(type.dyn));
         if (solu_isdtype(obj, SOLU_DERR)) {
-            sgb_err("Object [%u]:%s:load() error:\n-> %s", g->id_c - 1, (char *)type.dyn, (char *)obj.dyn);
+            fprintf(stderr, "%s\n", (char *)obj.dyn);
             continue;
         }
         solu_dappend(obj, *v);
@@ -174,9 +181,11 @@ sgb_game *sgb_game_new(void) {
 
         .objects = solu_dnew(s, SOLU_DOBJ),
         .rooms = solu_dnew(s, SOLU_DOBJ),
-        .sprites = solu_valmap_new(),
+        .spr_cache = solu_valmap_new(),
+        .mus_cache = solu_valmap_new(),
         .load_cache = solu_dnew(s, SOLU_DOBJ),
         .clear_color = BLACK,
+        .last_time = solu_timesec(),
     };
     if (solu_isdtype(game->manifest, SOLU_DERR)) {
         sgb_err("%s", (char *)game->manifest.dyn);
@@ -285,6 +294,10 @@ sgb_game *sgb_game_new(void) {
     p = make_dir(spr_p.dyn);
     if (!p) { sgb_game_free(game); return NULL; }
     game->spr_dir = sf_own(p);
+    solu_val snd_p = solu_dobj_strget(paths.dyn, "sounds");
+    p = make_dir(snd_p.dyn);
+    if (!p) { sgb_game_free(game); return NULL; }
+    game->snd_dir = sf_own(p);
 
     sgb_info(
         "=============== Game Start ===============\n"
@@ -294,12 +307,13 @@ sgb_game *sgb_game_new(void) {
         " - objects:%s\n"
         " - rooms:%s\n"
         " - sprites:%s\n"
+        " - sounds:%s\n"
         "==========================================",
         game->title.c_str,
         (int)game->resolution.x,
         (int)game->resolution.y,
         game->scale,
-        game->obj_dir.c_str, game->room_dir.c_str, game->spr_dir.c_str
+        game->obj_dir.c_str, game->room_dir.c_str, game->spr_dir.c_str, game->snd_dir.c_str
     );
 
     SetTraceLogLevel(LOG_ERROR);
@@ -308,6 +322,7 @@ sgb_game *sgb_game_new(void) {
         (int)(game->resolution.y * (float)game->scale),
         game->title.c_str
     );
+    InitAudioDevice();
     game->open = true;
     game->screen = LoadRenderTexture((int)game->resolution.x, (int)game->resolution.y);
     SetTextureFilter(game->screen.texture, TEXTURE_FILTER_POINT);
@@ -357,6 +372,10 @@ static inline void sgb_update_globals(sgb_game *g) {
     float gy = (m.y - (((float)GetScreenHeight() - g->resolution.y * scale) / 2)) / scale;
     solu_dobj_strset(mouse.dyn, "x", (solu_val){SOLU_TF64, .f64=gx});
     solu_dobj_strset(mouse.dyn, "y", (solu_val){SOLU_TF64, .f64=gy});
+
+    solu_f64 now = solu_timesec();
+    solu_dobj_strset(g->ginfo.dyn, "delta_time", (solu_val){SOLU_TF64, .f64 = now - g->last_time});
+    g->last_time = now;
 }
 
 static inline void sgb_update_camera(sgb_game *g) {
@@ -379,6 +398,10 @@ static inline void sgb_update_camera(sgb_game *g) {
     }
 }
 
+static void _music_update(void *_ud, sf_str _k, solu_val val) {
+    (void)_ud; (void)_k;
+    UpdateMusicStream((*(sgb_sounddata **)val.dyn)->music);
+}
 int sgb_game_run(void) {
     sgb_game *g = sgb_game_new();
     if (!g) return -1;
@@ -391,6 +414,7 @@ int sgb_game_run(void) {
     solu_val *snap = NULL;
     while (!WindowShouldClose()) { // Raylib Loop
         sgb_update_globals(g);
+        solu_valmap_foreach(&g->mus_cache, _music_update, NULL);
 
         uint32_t count = om->array.count;
         if (count) {
@@ -419,6 +443,7 @@ int sgb_game_run(void) {
 
         if (g->roomchange) { // Interrupt update if room changes
             g->roomchange = false;
+            g->camera = (sf_vec2){0, 0};
             om = g->objects.dyn;
             if (sort) free(sort);
             sort = NULL;
@@ -428,12 +453,12 @@ int sgb_game_run(void) {
 
         sort_c = om->array.count;
         sort_c = om->array.count;
-        memset(sort, 0, sizeof(sgb_draw) * pc);
         if (!sort || sort_c > pc) {
             free(sort);
             pc = sort_c;
             sort = calloc(pc, sizeof(sgb_draw));
         }
+        memset(sort, 0, sizeof(sgb_draw) * pc);
         for (uint32_t i = 0; i < om->array.count; ++i) {
             solu_val *obj = om->array.data + i;
             if (!solu_isdtype(*obj, SOLU_DOBJ)) continue;
@@ -505,8 +530,12 @@ void sgb_game_free(sgb_game *game) {
     sf_str_free(game->room_dir);
     sf_str_free(game->obj_dir);
     sf_str_free(game->spr_dir);
-    solu_valmap_free(&game->sprites);
-    if (game->open) CloseWindow();
+    solu_valmap_free(&game->spr_cache);
+    solu_valmap_free(&game->mus_cache);
+    if (game->open) {
+        CloseAudioDevice();
+        CloseWindow();
+    }
 }
 
 #ifndef _WIN32

@@ -25,15 +25,30 @@ typedef struct {
     sgb_rect *frames;
     uint32_t frame_c;
 } sgb_spritedata;
-
-typedef struct {
-    Sound sound;
-} sgb_sounddata;
-
 static inline void sgb_spritedata_free(sgb_spritedata sprite) {
     sf_str_free(sprite.name);
     UnloadTexture(sprite.texture);
     if (sprite.frames) free(sprite.frames);
+}
+
+typedef struct {
+    void *g;
+    sf_str name;
+    enum {
+        SGB_SOUND,
+        SGB_MUSIC,
+    } tt;
+    union {
+        Sound sound;
+        Music music;
+    };
+    solu_f64 default_volume;
+} sgb_sounddata;
+static inline void sgb_sounddata_free(sgb_sounddata sound) {
+    sf_str_free(sound.name);
+    if (sound.tt == SGB_SOUND)
+        UnloadSound(sound.sound);
+    else UnloadMusicStream(sound.music);
 }
 
 typedef struct sgb_sprites sgb_sprites;
@@ -52,6 +67,13 @@ void _sgb_sprites_cleanup(sgb_sprites *);
 #define EXPECTED_E sf_str
 #include <sf/containers/expected.h>
 sgb_spr_ex sgb_open_sprite(solu_state *state, sf_str spr_dir, char *name);
+
+#define EXPECTED_NAME sgb_snd_ex
+#define EXPECTED_O sgb_sounddata
+#define EXPECTED_E sf_str
+#include <sf/containers/expected.h>
+sgb_snd_ex sgb_open_sound(sf_str snd_dir, char *name);
+sgb_snd_ex sgb_open_music(solu_state *state, sf_str snd_dir, char *name);
 
 solu_val sgb_manifest_load(solu_state *state);
 
