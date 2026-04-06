@@ -258,7 +258,7 @@ sgb_game *sgb_game_new(void) {
 
     solu_val _set = solu_wrapcfun(s, sgb_set, 2, gcaps, 1);
     solu_dobj_strset(da->meta.dyn, "_set", _set);
-    da->metafuns[SOLU_META_SET] = _set;
+    da->metadata[SOLU_META_SET] = _set;
 
     solu_setg(s, "game", game->ginfo);
 
