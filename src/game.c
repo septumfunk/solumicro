@@ -39,14 +39,14 @@ bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
 
             if (g->s->ecall->dbg && g->s->ecall->file_name.len > 0)
                 fprintf(stderr,
-                    TUI_ERR "Object %s:%s() error:\n[" TUI_CLEAR "%s:%d:%d" TUI_ERR "]\n-> %s\n\n" TUI_CLEAR,
+                    TUI_ERR "Object %s:%s() error:\n[" TUI_CLEAR "%s:%d:%d" TUI_ERR "]\n-> %s\n" TUI_CLEAR,
                     solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
                     name, g->s->ecall->file_name.c_str,
                     SOLU_DBG_LINE(g->s->ecall->dbg[call_ex.err.pc]), SOLU_DBG_COL(g->s->ecall->dbg[call_ex.err.pc]),
                     call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
                 );
             else fprintf(stderr,
-                TUI_ERR "Object %s:%s() error:\n-> %s\n\n" TUI_CLEAR,
+                TUI_ERR "Object %s:%s() error:\n-> %s\n" TUI_CLEAR,
                 solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
                 name, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
             );
@@ -239,7 +239,8 @@ sgb_game *sgb_game_new(void) {
     // 'game' setter
     solu_val gcaps[] = {game->ginfo, gptr};
     solu_dobj *ginfo = game->ginfo.dyn;
-    ginfo->meta = solu_dnew(s, SOLU_DOBJ);
+    solu_dalloc *da = solu_dheader(game->ginfo);
+    da->meta = solu_dnew(s, SOLU_DOBJ);
     solu_dhold(game->ginfo);
     solu_dobj_strset(ginfo, "width", (solu_val){SOLU_TI64, .i64=(solu_i64)game->resolution.x});
     solu_dobj_strset(ginfo, "height", (solu_val){SOLU_TI64, .i64=(solu_i64)game->resolution.y});
@@ -253,11 +254,11 @@ sgb_game *sgb_game_new(void) {
     solu_dobj_strset(set.dyn, "paused", solu_wrapcfun(s, sgb_set_paused, 1, gcaps, 2));
     solu_dobj_strset(set.dyn, "width", solu_wrapcfun(s, sgb_noset, 1, gcaps, 2));
     solu_dobj_strset(set.dyn, "height", solu_wrapcfun(s, sgb_noset, 1, gcaps, 2));
-    solu_dobj_strset(ginfo->meta.dyn, "set", set);
+    solu_dobj_strset(da->meta.dyn, "set", set);
 
     solu_val _set = solu_wrapcfun(s, sgb_set, 2, gcaps, 1);
-    solu_dobj_strset(ginfo->meta.dyn, "_set", _set);
-    ginfo->metafuns[SOLU_META_SET] = _set;
+    solu_dobj_strset(da->meta.dyn, "_set", _set);
+    da->metafuns[SOLU_META_SET] = _set;
 
     solu_setg(s, "game", game->ginfo);
 

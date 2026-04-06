@@ -13,7 +13,8 @@
       "type": "lldb",
       "env": {
         "ASAN_OPTIONS": "detect_leaks=0:disable_coredump=0",
-        "LSAN_OPTIONS": "detect_leaks=0"
+        "LSAN_OPTIONS": "detect_leaks=0",
+        "OS_ACTIVITY_MODE": "disable"
       },
 
       // Windows overrides

@@ -80,9 +80,7 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     solu_dobj_strset(out.dyn, "depth", (solu_val){SOLU_TF64, .f64=0});
     solu_dobj_strset(out.dyn, "type", solu_dnstr(g->s, path.c_str));
     solu_dobj_set(g->s, g->objects.dyn, idv, out);
-
-    // Member Fun
-    solu_dobj_strset(out.dyn, "delete", solu_wrapmfun(g->s, sgb_delete, 1, &g->gptr, 1));
+    solu_dheader(out)->metafuns[SOLU_META_EXTEND] = g->obj;
 
     return out;
 }
@@ -120,8 +118,12 @@ void sgb_register(sgb_game *g) {
     solu_dobj_strset(g->snd.dyn, "is_playing", solu_wrapmfun(g->s, sgb_snd_is_playing, 0, &g->gptr, 1));
     solu_dobj_strset(g->snd.dyn, "stop", solu_wrapmfun(g->s, sgb_snd_stop, 0, &g->gptr, 1));
 
+    g->obj = solu_dnew(g->s, SOLU_DOBJ);
+    solu_dhold(g->obj);
+    solu_dobj_strset(g->obj.dyn, "delete", solu_wrapmfun(g->s, sgb_delete, 1, &g->gptr, 1));
+
     // Globals
-    solu_setg(g->s, "delete", solu_wrapcfun(g->s, sgb_delete, 1, &g->gptr, 1));
+    solu_setg(g->s, "delete", solu_wrapmfun(g->s, sgb_delete, 1, &g->gptr, 1));
 
     solu_setg(g->s, "load", load);
     solu_setg(g->s, "draw", draw);
@@ -162,13 +164,13 @@ solu_call_ex sgb_set(solu_state *s) {
     solu_val f;
     if (solu_isdtype(cap, SOLU_DOBJ)) {
         solu_dobj *obj = cap.dyn;
-        solu_dobj *m_obj = obj->meta.dyn;
+        solu_dobj *m_obj = solu_dheader(cap)->meta.dyn;
         if (!obj || !m_obj) return solu_panic("Game Corrupt");
         set = solu_dobj_strget(m_obj, "set").dyn;
         if (!set) return solu_panic("Game Corrupt");
         f = solu_dobj_strget(set, key.dyn);
     } else {
-        set = solu_dobj_strget(solu_uheader(cap)->metafuns[SOLU_META_EXTEND].dyn, "set").dyn;
+        set = solu_dobj_strget(solu_dheader(cap)->metafuns[SOLU_META_EXTEND].dyn, "set").dyn;
         if (!set) return solu_panic("Game Corrupt");
         f = solu_dobj_strget(set, key.dyn);
         solu_fproto *fp = f.dyn;
@@ -285,8 +287,8 @@ solu_call_ex sgb_load_sprite(solu_state *s) {
     solu_dobj_strset(info.dyn, "frames", frames);
 
     solu_val out = solu_dnusr(s, sizeof(sgb_spritedata *), "spr", &spr, sgb_spr_delete, NULL);
-    solu_usrwrap *usr = solu_uheader(out);
-    solu_dobj *infod = info.dyn;
+    solu_dalloc *usr = solu_dheader(out);
+    solu_dalloc *infod = solu_dheader(info);
     infod->metafuns[SOLU_META_EXTEND] = g->sprite;
     usr->metafuns[SOLU_META_EXTEND] = info;
 
@@ -317,8 +319,8 @@ solu_call_ex sgb_load_sound(solu_state *s) {
     solu_dobj_strset(info.dyn, "volume", (solu_val){SOLU_TF64, .f64=1.0});
 
     solu_val out = solu_dnusr(s, sizeof(sgb_spritedata *), "sfx", &sfx, sgb_sfx_delete, NULL);
-    solu_usrwrap *usr = solu_uheader(out);
-    solu_dobj *infod = info.dyn;
+    solu_dalloc *usr = solu_dheader(out);
+    solu_dalloc *infod = solu_dheader(info);
     infod->meta = solu_dnew(s, SOLU_DOBJ);
     infod->metafuns[SOLU_META_EXTEND] = g->snd;
     usr->metafuns[SOLU_META_EXTEND] = info;
@@ -361,8 +363,8 @@ solu_call_ex sgb_load_music(solu_state *s) {
     sfx->music.looping = true;
 
     solu_val out = solu_dnusr(s, sizeof(sgb_spritedata *), "mus", &sfx, sgb_sfx_delete, NULL);
-    solu_usrwrap *usr = solu_uheader(out);
-    solu_dobj *infod = info.dyn;
+    solu_dalloc *usr = solu_dheader(out);
+    solu_dalloc *infod = solu_dheader(info);
     infod->metafuns[SOLU_META_EXTEND] = g->snd;
     usr->metafuns[SOLU_META_EXTEND] = info;
 
@@ -540,7 +542,7 @@ solu_call_ex sgb_snd_play(solu_state *s) {
         return solu_panic("Audio device is not ready!");
     sgb_sounddata *snd = *(sgb_sounddata **)sfx.dyn;
 
-    solu_val volume = solu_dobj_strget(solu_uheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "volume");
+    solu_val volume = solu_dobj_strget(solu_dheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "volume");
     if (volume.tt == SOLU_TF64)
         snd->tt == SGB_MUSIC ? SetMusicVolume(snd->music, (float)volume.f64) :
         SetSoundVolume(snd->sound, (float)volume.f64);
@@ -577,7 +579,7 @@ solu_call_ex sgb_snd_volume(solu_state *s) {
         return solu_panic("arg 'volume' expectected f64 got %s", solu_typename(volume).c_str);
     sgb_sounddata *snd = *(sgb_sounddata **)sfx.dyn;
     snd->tt == SGB_MUSIC ? SetMusicVolume(snd->music, (float)volume.f64) : SetSoundVolume(snd->sound, (float)volume.f64);
-    solu_dobj_strset(solu_uheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "volume", volume);
+    solu_dobj_strset(solu_dheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "volume", volume);
     return solu_ok(SOLU_NIL);
 }
 
@@ -590,7 +592,7 @@ solu_call_ex sgb_snd_loop(solu_state *s) {
         return solu_panic("arg 'loop' expectected bool got %s", solu_typename(loop).c_str);
     sgb_sounddata *snd = *(sgb_sounddata **)sfx.dyn;
     snd->music.looping = loop.boolean;
-    solu_dobj_strset(solu_uheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "loop", loop);
+    solu_dobj_strset(solu_dheader(sfx)->metafuns[SOLU_META_EXTEND].dyn, "loop", loop);
     return solu_ok(SOLU_NIL);
 }
 

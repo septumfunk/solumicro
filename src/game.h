@@ -25,7 +25,7 @@ typedef struct {
     bool err_pause;
 
     solu_valmap spr_cache, mus_cache;
-    solu_val sprite, snd, music;
+    solu_val sprite, snd, music, obj;
     solu_f64 last_time;
 } sgb_game;
 
