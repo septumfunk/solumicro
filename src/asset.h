@@ -2,7 +2,8 @@
 #define ASSET_H
 
 #include <solus/vm.h>
-#include <raylib.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
 #include <stdint.h>
 
 typedef struct {
@@ -11,23 +12,33 @@ typedef struct {
 typedef struct {
     int32_t x, y;
 } sgb_point;
+
 typedef struct {
     uint32_t x, y;
     uint32_t width, height;
     sgb_point origin;
 } sgb_rect;
+typedef struct {
+    solu_i64 x, y;
+    solu_i64 width, height;
+    sgb_point origin;
+} sgb_irect;
+typedef struct {
+    solu_f64 x, y;
+    solu_f64 width, height;
+} sgb_frect;
 
 typedef struct {
     void *g;
     sf_str name;
-    Texture2D texture;
+    SDL_Texture *texture;
     sgb_size size;
     sgb_rect *frames;
     uint32_t frame_c;
 } sgb_spritedata;
 static inline void sgb_spritedata_free(sgb_spritedata sprite) {
     sf_str_free(sprite.name);
-    UnloadTexture(sprite.texture);
+    SDL_DestroyTexture(sprite.texture);
     if (sprite.frames) free(sprite.frames);
 }
 
@@ -39,16 +50,18 @@ typedef struct {
         SGB_MUSIC,
     } tt;
     union {
-        Sound sound;
-        Music music;
+        Mix_Chunk *sound;
+        Mix_Music *music;
     };
     solu_f64 default_volume;
+    int channel;
+    bool loop;
 } sgb_sounddata;
 static inline void sgb_sounddata_free(sgb_sounddata sound) {
     sf_str_free(sound.name);
     if (sound.tt == SGB_SOUND)
-        UnloadSound(sound.sound);
-    else UnloadMusicStream(sound.music);
+        Mix_FreeChunk(sound.sound);
+    else Mix_FreeMusic(sound.music);
 }
 
 typedef struct sgb_sprites sgb_sprites;
@@ -66,13 +79,13 @@ void _sgb_sprites_cleanup(sgb_sprites *);
 #define EXPECTED_O sgb_spritedata
 #define EXPECTED_E sf_str
 #include <sf/containers/expected.h>
-sgb_spr_ex sgb_open_sprite(solu_state *state, sf_str spr_dir, char *name);
+sgb_spr_ex sgb_open_sprite(SDL_Renderer *ren, solu_state *state, sf_str spr_dir, char *name);
 
 #define EXPECTED_NAME sgb_snd_ex
 #define EXPECTED_O sgb_sounddata
 #define EXPECTED_E sf_str
 #include <sf/containers/expected.h>
-sgb_snd_ex sgb_open_sound(sf_str snd_dir, char *name);
+sgb_snd_ex sgb_open_sound(solu_state *state, sf_str snd_dir, char *name);
 sgb_snd_ex sgb_open_music(solu_state *state, sf_str snd_dir, char *name);
 
 solu_val sgb_manifest_load(solu_state *state);

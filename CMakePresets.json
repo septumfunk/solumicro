@@ -7,34 +7,44 @@
 
   "configurePresets": [
     {
-      "name": "release-default",
-      "displayName": "Release (Default Compiler)",
+      "name": "desktop-release",
+      "displayName": "Desktop (Release)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build/desktop",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
       }
     },
     {
-      "name": "debug-default",
-      "displayName": "Debug (Default Compiler)",
+      "name": "desktop-debug",
+      "displayName": "Desktop (Debug)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build/desktop",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
       }
     },
+
     {
-      "name": "sanitized-default",
-      "displayName": "Debug+Sanitizers (Default Compiler)",
+      "name": "vita-release",
+      "displayName": "Vita (Release)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/sanitized",
+      "binaryDir": "${sourceDir}/build/vita",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VITASDK}/share/vita.toolchain.cmake"
+      }
+    },
+    {
+      "name": "vita-debug",
+      "displayName": "Vita (Debug)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/vita",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "ENABLE_SANITIZERS": "ON",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_TOOLCHAIN_FILE": "$env{VITASDK}/share/vita.toolchain.cmake"
       }
     }
   ]

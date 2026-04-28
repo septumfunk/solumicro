@@ -1,9 +1,11 @@
 #include "asset.h"
-#include "log.h"
+#include "platforms/platforms.h"
 #include "sf/str.h"
+#include "solus/bytecode.h"
 #include "solus/val.h"
+#include <SDL2/SDL_image.h>
+#include <SDL2/SDL_render.h>
 #include <limits.h>
-#include <raylib.h>
 #include <stdlib.h>
 
 const char SGB_DEFAULT_CONFIG[] = "{\n\
@@ -21,10 +23,13 @@ const char SGB_DEFAULT_CONFIG[] = "{\n\
     }\n\
 }";
 
-sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
-    char *fpath = solu_findfile(spr_dir.c_str, name);
-    if (!fpath)
+sgb_spr_ex sgb_open_sprite(SDL_Renderer *ren, solu_state *s, sf_str spr_dir, char *name) {
+    char *fpath = sf_str_fmt("%s/%s", spr_dir.c_str, name).c_str;
+    char *rpath = solu_findfile(s, fpath);
+    free(fpath);
+    if (!rpath)
         return sgb_spr_ex_err(sf_str_fmt("Failed to load sprite '%s'", name));
+    fpath = rpath;
 
     solu_compile_ex comp_ex = solu_cfile(s, fpath);
     free(fpath);
@@ -67,15 +72,30 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
     if (!spath)
         return sgb_spr_ex_err(sf_str_fmt("Failed to find sprite '%s' source sprite '%s'", name, source.dyn));
 
-    Texture2D texture = LoadTexture(spath);
-    SetTextureFilter(texture, TEXTURE_FILTER_POINT);
-    SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
+    SDL_Texture *texture = IMG_LoadTexture(ren, spath);
     free(spath);
-    if (!texture.id)
-        return sgb_spr_ex_err(sf_str_fmt("Failed to load sprite '%s' source sprite '%s'", name, source.dyn));
+    if (!texture) return sgb_spr_ex_err(sf_str_fmt(
+        "Failed to load sprite '%s' source sprite '%s': %s",
+        name,
+        (char *)source.dyn,
+        IMG_GetError()
+    ));
+    SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
+
+    uint32_t format;
+    int access, w, h;
+    if (SDL_QueryTexture(texture, &format, &access, &w, &h) != 0) {
+        SDL_DestroyTexture(texture);
+        return sgb_spr_ex_err(sf_str_fmt(
+            "Failed to query sprite '%s': %s",
+            name,
+            SDL_GetError()
+        ));
+    }
+
     sgb_spritedata spr = {
         .texture = texture,
-        .size = {(uint32_t)texture.width, (uint32_t)texture.height},
+        .size = {(uint32_t)w, (uint32_t)h},
     };
 
     if (solu_isdtype(frames, SOLU_DOBJ)) {
@@ -111,7 +131,7 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
             solu_val repeat = solu_dobj_strget(obj, "repeat");
             repeat = repeat.tt != SOLU_TI64 ? (solu_val){SOLU_TI64, .i64=(repeat.tt == SOLU_TF64 ? (solu_i64)repeat.f64 : 0)} : repeat;
             if (repeat.i64 > 0)
-                spr.frames = realloc(spr.frames, (spr.frame_c += repeat.i64) * sizeof(sgb_rect));
+                spr.frames = realloc(spr.frames, (spr.frame_c += (uint32_t)repeat.i64) * sizeof(sgb_rect));
             uint32_t emit = 1u + (uint32_t)repeat.i64;
             for (uint32_t j = 0; j < emit; ++j) {
                 spr.frames[o++] = (sgb_rect){
@@ -143,19 +163,19 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
 
         int fw = (int)(min(max(f_obj->array.data[0].i64, INT_MIN), INT_MAX));
         int fh = (int)(min(max(f_obj->array.data[1].i64, INT_MIN), INT_MAX));
-        if (fw <= 0 || texture.width % fw)
+        if (fw <= 0 || w % fw)
             return sgb_spr_ex_err(sf_str_fmt(
                 "Sprite '%s' auto.frame_size[0]: width %d does not fit in %d",
-                name, fw, texture.width
+                name, fw, w
             ));
-        if (fh <= 0 || texture.height % fh)
+        if (fh <= 0 || h % fh)
             return sgb_spr_ex_err(sf_str_fmt(
                 "Sprite '%s' auto.frame_size[1]: height %d does not fit in %d",
-                name, fh, texture.height
+                name, fh, h
             ));
 
-        int col = texture.width / fw;
-        int row = texture.height / fh;
+        int col = w / fw;
+        int row = h / fh;
 
         solu_val exclude = solu_dobj_strget(a_obj, "exclude");
         if (exclude.tt == SOLU_TI64 && (exclude.i64 > col || exclude.i64 < 0))
@@ -189,12 +209,16 @@ sgb_spr_ex sgb_open_sprite(solu_state *s, sf_str spr_dir, char *name) {
     return sgb_spr_ex_ok(spr);
 }
 
-sgb_snd_ex sgb_open_sound(sf_str snd_dir, char *name) {
-    sf_str path = sf_str_join(snd_dir, sf_lit("/"));
-    sf_str_append(&path, sf_ref(name));
-    Sound snd = LoadSound(path.c_str);
-    sf_str_free(path);
-    if (!IsSoundValid(snd))
+sgb_snd_ex sgb_open_sound(solu_state *s, sf_str snd_dir, char *name) {
+    char *fpath = sf_str_fmt("%s/%s", snd_dir.c_str, name).c_str;
+    char *rpath = solu_findfile(s, fpath);
+    free(fpath);
+    if (!rpath)
+        return sgb_snd_ex_err(sf_str_fmt("Failed to load sound '%s'", name));
+    fpath = rpath;
+    Mix_Chunk *snd = Mix_LoadWAV(fpath);
+    free(fpath);
+    if (!snd)
         return sgb_snd_ex_err(sf_str_fmt("Failed to load sound '%s'", name));
     return sgb_snd_ex_ok((sgb_sounddata){
         .tt = SGB_SOUND,
@@ -204,9 +228,13 @@ sgb_snd_ex sgb_open_sound(sf_str snd_dir, char *name) {
 }
 
 sgb_snd_ex sgb_open_music(solu_state *s, sf_str snd_dir, char *name) {
-    char *fpath = solu_findfile(snd_dir.c_str, name);
-    if (!fpath)
+    char *fpath = sf_str_fmt("%s/%s", snd_dir.c_str, name).c_str;
+    char *rpath = solu_findfile(s, fpath);
+    free(fpath);
+    if (!rpath)
         return sgb_snd_ex_err(sf_str_fmt("Failed to load music '%s'", name));
+    fpath = rpath;
+
 
     solu_compile_ex comp_ex = solu_cfile(s, fpath);
     free(fpath);
@@ -241,37 +269,46 @@ sgb_snd_ex sgb_open_music(solu_state *s, sf_str snd_dir, char *name) {
     if (!spath)
         return sgb_snd_ex_err(sf_str_fmt("Failed to find music '%s' source sound '%s'", name, source.dyn));
 
-    Music mus = LoadMusicStream(spath);
+    Mix_Music *mus = Mix_LoadMUS(spath);
     free(spath);
-    if (!IsMusicValid(mus))
+    if (!mus)
         return sgb_snd_ex_err(sf_str_fmt("Failed to load music '%s'", name));
 
     solu_val volume = solu_dobj_strget(call_ex.ok.dyn, "volume");
     solu_val loop = solu_dobj_strget(call_ex.ok.dyn, "loop");
-    if (loop.tt == SOLU_TBOOL)
-        mus.looping = loop.boolean;
 
     return sgb_snd_ex_ok((sgb_sounddata){
         .tt = SGB_MUSIC,
         .music = mus,
         .name = sf_str_cdup(name),
         .default_volume = volume.tt == SOLU_TF64 ? volume.f64 : 1,
+        .loop = loop.tt == SOLU_TBOOL && loop.boolean,
     });
 }
 
 solu_val sgb_manifest_load(solu_state *s) {
     solu_val out = SOLU_NIL;
 
-    solu_compile_ex comp_ex = solu_cfile(s, "manifest.solu");
+    char *ppath = sgb_locate_manifest();
+    if (!ppath)
+        return solu_dnerr(s, "Failed to locate manifest.solu");
+
+    solu_compile_ex comp_ex = solu_cfile(s, ppath);
     if (!comp_ex.is_ok) {
-        if (sf_file_exists(sf_lit("manifest.solu")))
-            return SOLU_NIL;
-        FILE *f = fopen("manifest.solu", "w");
-        if (!f) return SOLU_NIL;
+        if (sf_file_exists(sf_ref(ppath))) {
+            free(ppath);
+            return solu_dnerr(s, "Failed to open file");
+        }
+        FILE *f = fopen(ppath, "w");
+        if (!f) {
+            free(ppath);
+            return solu_dnerr(s, "Failed to create file");
+        }
         fwrite(SGB_DEFAULT_CONFIG, 1, sizeof(SGB_DEFAULT_CONFIG) - 1, f);
         fclose(f);
         comp_ex = solu_csrc(s, (char *)SGB_DEFAULT_CONFIG);
     }
+    free(ppath);
 
     solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
         solu_fproto_free(&comp_ex.ok);

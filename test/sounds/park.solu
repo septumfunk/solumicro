@@ -1,0 +1,5 @@
+{
+    source = 'park.wav'
+    volume = .3
+    loop = true
+}
