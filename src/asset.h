@@ -6,6 +6,12 @@
 #include <SDL2/SDL_mixer.h>
 #include <stdint.h>
 
+
+static inline bool sgb_is_solc(char *name) {
+    size_t len = strlen(name);
+    return len >= 5 && memcmp(name + len - 5, ".solc",  5) == 0;
+}
+
 typedef struct {
     uint32_t width, height;
 } sgb_size;

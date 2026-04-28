@@ -31,16 +31,32 @@ sgb_spr_ex sgb_open_sprite(SDL_Renderer *ren, solu_state *s, sf_str spr_dir, cha
         return sgb_spr_ex_err(sf_str_fmt("Failed to load sprite '%s'", name));
     fpath = rpath;
 
-    solu_compile_ex comp_ex = solu_cfile(s, fpath);
+    solu_fproto fp;
+    if (sgb_is_solc(fpath)) {
+        solu_load_ex load_ex = solu_loadfun(s, fpath);
+        if (!load_ex.is_ok) {
+            free(fpath);
+            return sgb_spr_ex_err(sf_str_fmt(
+                "Failed to compile sprite '%s': %s",
+                name, solu_err_string(load_ex.err)
+            ));
+        }
+        fp = load_ex.ok;
+    } else {
+        solu_compile_ex comp_ex = solu_cfile(s, fpath);
+        if (!comp_ex.is_ok) {
+            free(fpath);
+            return sgb_spr_ex_err(sf_str_fmt(
+                "Failed to compile sprite '%s': %s",
+                name, solu_err_string(comp_ex.err.tt)
+            ));
+        }
+        fp = comp_ex.ok;
+    }
     free(fpath);
-    if (!comp_ex.is_ok)
-        return sgb_spr_ex_err(sf_str_fmt(
-            "Failed to compile sprite '%s': %s",
-            name, solu_err_string(comp_ex.err.tt)
-        ));
 
-    solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
-    solu_fproto_free(&comp_ex.ok);
+    solu_call_ex call_ex = solu_call(s, &fp, NULL, 0);
+    solu_fproto_free(&fp);
     if (!call_ex.is_ok) {
         sf_str e = sf_str_fmt("Panic during sprite '%s': %s", name, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         if (call_ex.err.panic)
@@ -235,17 +251,32 @@ sgb_snd_ex sgb_open_music(solu_state *s, sf_str snd_dir, char *name) {
         return sgb_snd_ex_err(sf_str_fmt("Failed to load music '%s'", name));
     fpath = rpath;
 
-
-    solu_compile_ex comp_ex = solu_cfile(s, fpath);
+    solu_fproto fp;
+    if (sgb_is_solc(fpath)) {
+        solu_load_ex load_ex = solu_loadfun(s, fpath);
+        if (!load_ex.is_ok) {
+            free(fpath);
+            return sgb_snd_ex_err(sf_str_fmt(
+                "Failed to compile music '%s': %s",
+                name, solu_err_string(load_ex.err)
+            ));
+        }
+        fp = load_ex.ok;
+    } else {
+        solu_compile_ex comp_ex = solu_cfile(s, fpath);
+        if (!comp_ex.is_ok) {
+            free(fpath);
+            return sgb_snd_ex_err(sf_str_fmt(
+                "Failed to compile music '%s': %s",
+                name, solu_err_string(comp_ex.err.tt)
+            ));
+        }
+        fp = comp_ex.ok;
+    }
     free(fpath);
-    if (!comp_ex.is_ok)
-        return sgb_snd_ex_err(sf_str_fmt(
-            "Failed to compile music '%s': %s",
-            name, solu_err_string(comp_ex.err.tt)
-        ));
 
-    solu_call_ex call_ex = solu_call(s, &comp_ex.ok, NULL, 0);
-    solu_fproto_free(&comp_ex.ok);
+    solu_call_ex call_ex = solu_call(s, &fp, NULL, 0);
+    solu_fproto_free(&fp);
     if (!call_ex.is_ok) {
         sf_str e = sf_str_fmt("Panic during music '%s': %s", name, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
         if (call_ex.err.panic)

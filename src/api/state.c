@@ -1,4 +1,5 @@
 #include "../api.h"
+#include "solus/vm.h"
 #include <SDL2/SDL_video.h>
 
 solu_call_ex sgb_quit(solu_state *s) {
@@ -64,21 +65,37 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
     }
     rp = rpath;
 
-    solu_compile_ex comp_ex = solu_cfile(g->s, rp);
-    if (!comp_ex.is_ok) {
-        sf_str e = sf_str_fmt(
-            TUI_ERR "Object %s:load() error:\n[" TUI_CLEAR "%s:%d:%d" TUI_ERR "]\n-> %s\n\n" TUI_CLEAR,
-            path.c_str, rp,
-            comp_ex.err.line, comp_ex.err.column,
-            solu_err_string(comp_ex.err.tt)
-        );
-        free(rp);
-        out = solu_dnerr(g->s, e.c_str);
-        sf_str_free(e);
-        return out;
+    solu_fproto fp;
+    if (sgb_is_solc(rp)) {
+        solu_load_ex load_ex = solu_loadfun(g->s, rp);
+        if (!load_ex.is_ok) {
+            free(rp);
+            sf_str e = sf_str_fmt(
+                "Failed to compile sprite '%s': %s",
+                path.c_str, solu_err_string(load_ex.err)
+            );
+            solu_val er = solu_dnerr(g->s, e.c_str);
+            sf_str_free(e);
+            return er;
+        }
+        fp = load_ex.ok;
+    } else {
+        solu_compile_ex comp_ex = solu_cfile(g->s, rp);
+        if (!comp_ex.is_ok) {
+            free(rp);
+            sf_str e = sf_str_fmt(
+                "Failed to compile sprite '%s': %s",
+                path.c_str, solu_err_string(comp_ex.err.tt)
+            );
+            solu_val er = solu_dnerr(g->s, e.c_str);
+            sf_str_free(e);
+            return er;
+        }
+        fp = comp_ex.ok;
     }
 
-    solu_call_ex call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
+    solu_call_ex call_ex = solu_call(g->s, &fp, NULL, 0);
+
     if (!call_ex.is_ok) {
         sf_str e;
         if (g->s->ecall->dbg && g->s->ecall->file_name.len > 0)
@@ -94,7 +111,7 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
             call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
         );
         free(rp);
-        solu_fproto_free(&comp_ex.ok);
+        solu_fproto_free(&fp);
         out = solu_dnerr(g->s, e.c_str);
         sf_str_free(e);
         if (call_ex.err.panic)
@@ -102,7 +119,8 @@ solu_val sgb_object_new(sgb_game *g, solu_i64 id, sf_str path) {
         return out;
     }
     free(rp);
-    solu_fproto_free(&comp_ex.ok);
+
+    solu_fproto_free(&fp);
     if (!solu_isdtype(call_ex.ok, SOLU_DOBJ)) {
         sf_str e = sf_str_fmt("Expected gameobject to return obj, got %s\n", solu_typename(call_ex.ok).c_str);
         out = solu_dnerr(g->s, e.c_str);

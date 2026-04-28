@@ -91,6 +91,7 @@ int sgb_changeroom(sgb_game *g, char *name) {
     } else {
         char *path = sf_str_fmt("%s/%s", g->room_dir.c_str, name).c_str;
         char *rp = solu_findfile(g->s, path);
+        sgb_info("Path: %s", rp);
         free(path);
         if (!rp) {
             sgb_err("Unable to locate room %s\n", name);
@@ -98,15 +99,27 @@ int sgb_changeroom(sgb_game *g, char *name) {
         }
         path = rp;
 
-        solu_compile_ex comp_ex = solu_cfile(g->s, path);
-        if (!comp_ex.is_ok) {
-            sgb_err("Unable to load %s: %s", path, solu_err_string(comp_ex.err.tt));
-            free(path);
-            return -1;
+        solu_fproto fp;
+        if (sgb_is_solc(path)) {
+            solu_load_ex load_ex = solu_loadfun(g->s, path);
+            if (!load_ex.is_ok) {
+                sgb_err("Unable to load %s: %s", path, solu_err_string(load_ex.err));
+                free(path);
+                return -1;
+            }
+            fp = load_ex.ok;
+        } else {
+            solu_compile_ex comp_ex = solu_cfile(g->s, path);
+            if (!comp_ex.is_ok) {
+                sgb_err("Unable to load %s: %s", path, solu_err_string(comp_ex.err.tt));
+                free(path);
+                return -1;
+            }
+            fp = comp_ex.ok;
         }
 
-        solu_call_ex call_ex = solu_call(g->s, &comp_ex.ok, NULL, 0);
-        solu_fproto_free(&comp_ex.ok);
+        solu_call_ex call_ex = solu_call(g->s, &fp, NULL, 0);
+        solu_fproto_free(&fp);
 
         if (!call_ex.is_ok) {
             sgb_err("Panic during room init: %s", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
@@ -119,26 +132,22 @@ int sgb_changeroom(sgb_game *g, char *name) {
         solu_dobj_strset(g->load_cache.dyn, name, room);
         free(path);
     }
-    sgb_check("Loaded room");
     solu_val spawns = solu_dobj_strget(room.dyn, "spawns");
     if (!solu_isdtype(spawns, SOLU_DOBJ)) {
         sgb_err("Expected spawns:obj in room", NULL);
         return -1;
     }
-    sgb_check("Loaded spawns");
 
     solu_val size = solu_dobj_strget(room.dyn, "size");
     if (!solu_arrptype(size, SOLU_TI64, 2)) {
         sgb_err("Expected size[2:i64] in room", NULL);
         return -1;
     }
-    sgb_check("Loaded size");
     solu_val grid = solu_dobj_strget(room.dyn, "grid");
     if (grid.tt != SOLU_TI64) {
         sgb_err("Expected grid:i64 in room", NULL);
         return -1;
     }
-    sgb_check("Loaded grid");
     g->room_size = (sgb_point){
         abs((int32_t)((solu_dobj *)size.dyn)->array.data[0].i64),
         abs((int32_t)((solu_dobj *)size.dyn)->array.data[1].i64)
@@ -160,43 +169,22 @@ int sgb_changeroom(sgb_game *g, char *name) {
          {0, 0}
     }, (uint32_t)g->grid);
 
-    sgb_check("Loaded world");
 
     solu_val r_name = solu_dobj_strget(room.dyn, "name");
     if (!solu_isdtype(r_name, SOLU_DSTR)) {
         sgb_err("Expected name:str in room", NULL);
         return -1;
     }
-    sgb_check("Loaded name");
 
     sf_str_free(g->room);
     g->room = sf_str_cdup(name);
     solu_dobj_strset(g->ginfo.dyn, "room", solu_dnstr(g->s, g->room.c_str));
-    sgb_check("Created room");
-
-    sgb_check("Before cleanup callmethods");
-
-sgb_callmethods(g, g->objects.dyn, "cleanup");
-
-sgb_check("Before release objects");
-
-solu_drelease(g->objects);
-
-sgb_check("Before new objects");
-
-g->objects = solu_dnew(g->s, SOLU_DOBJ);
-
-sgb_check("Before set global objects");
-
-solu_setg(g->s, "objects", g->objects);
-
-sgb_check("Before hold objects");
-
-solu_dhold(g->objects);
-
-g->id_c = 0;
-
-sgb_check("Cleaned up");
+    sgb_callmethods(g, g->objects.dyn, "cleanup");
+    solu_drelease(g->objects);
+    g->objects = solu_dnew(g->s, SOLU_DOBJ);
+    solu_setg(g->s, "objects", g->objects);
+    solu_dhold(g->objects);
+    g->id_c = 0;
 
     solu_dobj *obj = spawns.dyn;
     solu_dhold(spawns);
@@ -217,8 +205,6 @@ sgb_check("Cleaned up");
     }
     solu_drelease(spawns);
 
-    sgb_check("Spawned new objs");
-
     solu_val start = solu_dobj_strget(room.dyn, "start");
     if (solu_isdtype(start, SOLU_DFUN)) {
         solu_call_ex call_ex = solu_call(g->s, start.dyn, NULL, 0);
@@ -234,7 +220,6 @@ sgb_check("Cleaned up");
         }
     }
 
-    sgb_check("Called start");
     return 0;
 }
 
