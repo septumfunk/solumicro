@@ -6,47 +6,47 @@
 #include "sf/str.h"
 #include "solus/bytecode.h"
 #include "solus/val.h"
-#include "solus/vm.h"
+#include "solus/api.h"
 #include <SDL2/SDL_image.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
-void sgb_update_world(sgb_collision *c, sgb_irect world, uint32_t grid) {
+void smc_update_world(smc_collision *c, smc_irect world, uint32_t grid) {
     c->world = world;
     uint32_t width = (uint32_t)world.width / grid;
     uint32_t height = (uint32_t)world.height / grid;
     uint32_t pcount = width * height;
     if (c->partitions) {
         for (uint32_t i = 0; i < c->pcount; ++i)
-            sgb_partition_free(&c->partitions[i]);
+            smc_partition_free(&c->partitions[i]);
         if (pcount != c->pcount) free(c->partitions);
     }
     if (pcount != c->pcount)
-        c->partitions = malloc(pcount * sizeof(sgb_partition));
+        c->partitions = malloc(pcount * sizeof(smc_partition));
     c->pcount = pcount;
     c->grid = grid;
 
     for (uint32_t i = 0; i < c->pcount; ++i)
-        c->partitions[i] = sgb_partition_new();
+        c->partitions[i] = smc_partition_new();
 }
 
-void _sgb_sprites_fe(void *ud, sf_str k, sgb_spritedata spr) {
+void _smc_sprites_fe(void *ud, sf_str k, smc_spritedata spr) {
     (void)ud;
     sf_str_free(k);
     if (spr.frames) free(spr.frames);
 }
-void _sgb_sprites_cleanup(sgb_sprites *spr) {
-    sgb_sprites_foreach(spr, _sgb_sprites_fe, NULL);
+void _smc_sprites_cleanup(smc_sprites *spr) {
+    smc_sprites_foreach(spr, _smc_sprites_fe, NULL);
 }
 
-static inline void sgb_pause(sgb_game *g, bool toggle) {
+static inline void smc_pause(smc_game *g, bool toggle) {
     g->paused = toggle;
     solu_dobj_strset(g->ginfo.dyn, "paused", (solu_val){SOLU_TBOOL, .boolean=toggle});
 }
 
-bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
+bool smc_callmethod(smc_game *g, solu_dobj *obj, char *name) {
     g->ocall = (solu_val){SOLU_TDYN, .dyn=obj};
     solu_val update = solu_dobj_strget(obj, name);
     solu_dhold(update);
@@ -54,24 +54,23 @@ bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
         solu_call_ex call_ex = solu_call(g->s, update.dyn, NULL, 0);
         if (!call_ex.is_ok) {
             solu_val type = solu_dobj_strget(obj, "type");
-            if (g->s->ecall && g->s->ecall->dbg && g->s->ecall->file_name.len > 0)
-                printf(
-                    TUI_ERR "Object %s:%s() error:\n[" TUI_CLEAR "%s:%d:%d" TUI_ERR "]\n-> %s\n" TUI_CLEAR,
-                    solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
-                    name, g->s->ecall->file_name.c_str,
-                    SOLU_DBG_LINE(g->s->ecall->dbg[call_ex.err.pc]), SOLU_DBG_COL(g->s->ecall->dbg[call_ex.err.pc]),
-                    call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
+            char *trace = solu_trace_print(call_ex.err.trace, 5, 2, 1);
+            if (trace) {
+                smc_err(
+                    "Object %s:%s() error: %s\n" TUI_CLEAR "%s",
+                    solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???", name,
+                    call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt),
+                    trace
                 );
-            else printf(
-                TUI_ERR "Object %s:%s() error:\n-> %s\n" TUI_CLEAR,
-                solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???",
-                name, call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
+                free(trace);
+            } else smc_err(
+                TUI_ERR "Object %s:%s() error: %s\n" TUI_CLEAR,
+                solu_isdtype(type, SOLU_DSTR) ? (char *)type.dyn : "???", name,
+                call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
             );
 
-            if (call_ex.err.panic)
-                free(call_ex.err.panic);
             if (g->err_pause)
-                sgb_pause(g, true);
+                smc_pause(g, true);
         }
         solu_drelease(update);
         g->ocall = SOLU_NIL;
@@ -82,7 +81,7 @@ bool sgb_callmethod(sgb_game *g, solu_dobj *obj, char *name) {
     return false;
 }
 
-int sgb_changeroom(sgb_game *g, char *name) {
+int smc_changeroom(smc_game *g, char *name) {
     g->camera = (sf_vec2){0, 0};
     solu_val cache = solu_dobj_strget(g->load_cache.dyn, name);
     solu_val room = SOLU_NIL;
@@ -91,19 +90,19 @@ int sgb_changeroom(sgb_game *g, char *name) {
     } else {
         char *path = sf_str_fmt("%s/%s", g->room_dir.c_str, name).c_str;
         char *rp = solu_findfile(g->s, path);
-        sgb_info("Path: %s", rp);
+        smc_info("Path: %s", rp);
         free(path);
         if (!rp) {
-            sgb_err("Unable to locate room %s\n", name);
+            smc_err("Unable to locate room %s\n", name);
             return -1;
         }
         path = rp;
 
         solu_fproto fp;
-        if (sgb_is_solc(path)) {
+        if (smc_is_solc(path)) {
             solu_load_ex load_ex = solu_loadfun(g->s, path);
             if (!load_ex.is_ok) {
-                sgb_err("Unable to load %s: %s", path, solu_err_string(load_ex.err));
+                smc_err("Unable to load %s: %s", path, solu_err_string(load_ex.err));
                 free(path);
                 return -1;
             }
@@ -111,8 +110,9 @@ int sgb_changeroom(sgb_game *g, char *name) {
         } else {
             solu_compile_ex comp_ex = solu_cfile(g->s, path);
             if (!comp_ex.is_ok) {
-                sgb_err("Unable to load %s: %s", path, solu_err_string(comp_ex.err.tt));
-                free(path);
+                char *trace = solu_ctrace_print(path, comp_ex.err, 15, 2, 1);
+                smc_err("Unable to load %s\n%s", trace);
+                free(path); free(trace);
                 return -1;
             }
             fp = comp_ex.ok;
@@ -122,9 +122,7 @@ int sgb_changeroom(sgb_game *g, char *name) {
         solu_fproto_free(&fp);
 
         if (!call_ex.is_ok) {
-            sgb_err("Panic during room init: %s", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
-            if (call_ex.err.panic)
-                free(call_ex.err.panic);
+            smc_err("Panic during room init: %s", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
             free(path);
             return -1;
         }
@@ -134,34 +132,34 @@ int sgb_changeroom(sgb_game *g, char *name) {
     }
     solu_val spawns = solu_dobj_strget(room.dyn, "spawns");
     if (!solu_isdtype(spawns, SOLU_DOBJ)) {
-        sgb_err("Expected spawns:obj in room", NULL);
+        smc_err("Expected spawns:obj in room", NULL);
         return -1;
     }
 
     solu_val size = solu_dobj_strget(room.dyn, "size");
     if (!solu_arrptype(size, SOLU_TI64, 2)) {
-        sgb_err("Expected size[2:i64] in room", NULL);
+        smc_err("Expected size[2:i64] in room", NULL);
         return -1;
     }
     solu_val grid = solu_dobj_strget(room.dyn, "grid");
     if (grid.tt != SOLU_TI64) {
-        sgb_err("Expected grid:i64 in room", NULL);
+        smc_err("Expected grid:i64 in room", NULL);
         return -1;
     }
-    g->room_size = (sgb_point){
+    g->room_size = (smc_point){
         abs((int32_t)((solu_dobj *)size.dyn)->array.data[0].i64),
         abs((int32_t)((solu_dobj *)size.dyn)->array.data[1].i64)
     };
     g->grid = grid.i64;
     if (g->grid <= 0) {
-        sgb_err("Grid size must be positive", NULL);
+        smc_err("Grid size must be positive", NULL);
         return -1;
     }
     if (g->room_size.x <= grid.i64 || g->room_size.y <= grid.i64) {
-        sgb_err("Room size must be at least one grid unit wide", NULL);
+        smc_err("Room size must be at least one grid unit wide", NULL);
         return -1;
     }
-    sgb_update_world(&g->collision_data, (sgb_irect){
+    smc_update_world(&g->collision_data, (smc_irect){
         -g->room_size.x / 2,
         -g->room_size.y / 2,
          g->room_size.x,
@@ -172,14 +170,14 @@ int sgb_changeroom(sgb_game *g, char *name) {
 
     solu_val r_name = solu_dobj_strget(room.dyn, "name");
     if (!solu_isdtype(r_name, SOLU_DSTR)) {
-        sgb_err("Expected name:str in room", NULL);
+        smc_err("Expected name:str in room", NULL);
         return -1;
     }
 
     sf_str_free(g->room);
     g->room = sf_str_cdup(name);
     solu_dobj_strset(g->ginfo.dyn, "room", solu_dnstr(g->s, g->room.c_str));
-    sgb_callmethods(g, g->objects.dyn, "cleanup");
+    smc_callmethods(g, g->objects.dyn, "cleanup");
     solu_drelease(g->objects);
     g->objects = solu_dnew(g->s, SOLU_DOBJ);
     solu_setg(g->s, "objects", g->objects);
@@ -195,13 +193,13 @@ int sgb_changeroom(sgb_game *g, char *name) {
         if (!solu_isdtype(type, SOLU_DSTR))
             continue;
 
-        solu_val obj = sgb_object_new(g, g->id_c++, sf_ref(type.dyn));
+        solu_val obj = smc_object_new(g, g->id_c++, sf_ref(type.dyn));
         if (solu_isdtype(obj, SOLU_DERR)) {
             printf("%s\n", (char *)obj.dyn);
             continue;
         }
         solu_dappend(obj, *v);
-        sgb_callmethod(g, obj.dyn, "start");
+        smc_callmethod(g, obj.dyn, "start");
     }
     solu_drelease(spawns);
 
@@ -210,12 +208,10 @@ int sgb_changeroom(sgb_game *g, char *name) {
         solu_call_ex call_ex = solu_call(g->s, start.dyn, NULL, 0);
         if (!call_ex.is_ok) {
             solu_val name = solu_dobj_strget(room.dyn, "name");
-            sgb_err("Room %s:start() error:\n-> %s",
+            smc_err("Room %s:start() error:\n-> %s",
                 solu_isdtype(name, SOLU_DSTR) ? (char *)name.dyn : "???",
                 call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
             );
-            if (call_ex.err.panic)
-                free(call_ex.err.panic);
             return -1;
         }
     }
@@ -223,11 +219,11 @@ int sgb_changeroom(sgb_game *g, char *name) {
     return 0;
 }
 
-sgb_game *sgb_game_new(void) {
-    sgb_game *game = malloc(sizeof(sgb_game));
+smc_game *smc_game_new(void) {
+    smc_game *game = malloc(sizeof(smc_game));
     solu_state *s = solu_state_new();
     solu_usestd(s);
-    *game = (sgb_game){
+    *game = (smc_game){
         s,
         .ginfo = solu_dnew(s, SOLU_DOBJ),
 
@@ -240,7 +236,7 @@ sgb_game *sgb_game_new(void) {
         .last_time = solu_timesec(),
         .collision_data = {.partitions = NULL}
     };
-    sgb_platform_init(&game->platform);
+    smc_platform_init(&game->platform);
     // Managed by the runtime
     solu_dhold(game->ginfo);
     solu_dhold(game->objects);
@@ -249,10 +245,10 @@ sgb_game *sgb_game_new(void) {
     solu_setg(s, "rooms", game->rooms);
     solu_setg(s, "objects", game->objects);
 
-    game->manifest = sgb_manifest_load(s);
+    game->manifest = smc_manifest_load(s);
     if (solu_isdtype(game->manifest, SOLU_DERR)) {
-        sgb_err("%s", (char *)game->manifest.dyn);
-        sgb_game_free(game);
+        smc_err("%s", (char *)game->manifest.dyn);
+        smc_game_free(game);
         return NULL;
     }
 
@@ -276,13 +272,15 @@ sgb_game *sgb_game_new(void) {
         };
     }
 
-    game->scale = solu_dobj_strget(window.dyn, "scale").i64;
+    solu_val scale = solu_dobj_strget(window.dyn, "scale");
+    scale = scale.tt != SOLU_TI64 ? (solu_val){SOLU_TI64, .i64=1} : scale;
+    game->scale = scale.i64;
     solu_val err_pause = solu_dobj_strget(game->manifest.dyn, "err_pause");
     game->err_pause = err_pause.tt == SOLU_TBOOL ? err_pause.boolean : false;
 
     // solus value that stores a pointer to the game
     solu_val gptr = solu_dnusr(s,
-        sizeof(sgb_game *),
+        sizeof(smc_game *),
         "gameptr",
         &game,
         NULL, NULL
@@ -299,20 +297,20 @@ sgb_game *sgb_game_new(void) {
     solu_dhold(game->ginfo);
     solu_dobj_strset(ginfo, "width", (solu_val){SOLU_TI64, .i64=(solu_i64)game->resolution.x});
     solu_dobj_strset(ginfo, "height", (solu_val){SOLU_TI64, .i64=(solu_i64)game->resolution.y});
-    solu_dobj_strset(ginfo, "platform", solu_dnstr(s, sgb_platform_string()));
+    solu_dobj_strset(ginfo, "platform", solu_dnstr(s, smc_platform_string()));
     solu_dobj_strset(ginfo, "paused", (solu_val){SOLU_TBOOL, .boolean = false});
-    solu_dobj_strset(ginfo, "quit", solu_wrapcfun(s, sgb_quit, 0, &gptr, 1));
+    solu_dobj_strset(ginfo, "quit", solu_wrapcfun(s, smc_quit, 0, &gptr, 1));
 
     // setter fields
     solu_val set = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(set.dyn, "room", solu_wrapcfun(s, sgb_set_room, 1, gcaps, 2));
-    solu_dobj_strset(set.dyn, "title", solu_wrapcfun(s, sgb_set_title, 1, gcaps, 2));
-    solu_dobj_strset(set.dyn, "paused", solu_wrapcfun(s, sgb_set_paused, 1, gcaps, 2));
-    solu_dobj_strset(set.dyn, "width", solu_wrapcfun(s, sgb_noset, 1, gcaps, 2));
-    solu_dobj_strset(set.dyn, "height", solu_wrapcfun(s, sgb_noset, 1, gcaps, 2));
+    solu_dobj_strset(set.dyn, "room", solu_wrapcfun(s, smc_set_room, 1, gcaps, 2));
+    solu_dobj_strset(set.dyn, "title", solu_wrapcfun(s, smc_set_title, 1, gcaps, 2));
+    solu_dobj_strset(set.dyn, "paused", solu_wrapcfun(s, smc_set_paused, 1, gcaps, 2));
+    solu_dobj_strset(set.dyn, "width", solu_wrapcfun(s, smc_noset, 1, gcaps, 2));
+    solu_dobj_strset(set.dyn, "height", solu_wrapcfun(s, smc_noset, 1, gcaps, 2));
     solu_dobj_strset(da->meta.dyn, "set", set);
 
-    solu_val _set = solu_wrapcfun(s, sgb_set, 3, gcaps, 1);
+    solu_val _set = solu_wrapcfun(s, smc_set, 3, gcaps, 1);
     solu_dobj_strset(da->meta.dyn, "_set", _set);
     da->metadata[SOLU_META_SET] = _set;
 
@@ -329,9 +327,7 @@ sgb_game *sgb_game_new(void) {
     if (solu_isdtype(init, SOLU_DFUN)) {
         solu_call_ex call_ex = solu_call(s, init.dyn, NULL, 0);
         if (!call_ex.is_ok) {
-            sgb_err("Panic during game init: %s", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
-            if (call_ex.err.panic)
-                free(call_ex.err.panic);
+            smc_err("Panic during game init: %s", call_ex.err.panic ? call_ex.err.panic : solu_err_string(call_ex.err.tt));
             free(game);
             return NULL;
         }
@@ -340,23 +336,23 @@ sgb_game *sgb_game_new(void) {
     // paths
     solu_val paths = solu_dobj_strget(game->manifest.dyn, "path");
     solu_val obj_p = solu_dobj_strget(paths.dyn, "objects");
-    char *p = sgb_data_dir(obj_p.dyn);
-    if (!p) { sgb_game_free(game); return NULL; }
+    char *p = smc_data_dir(obj_p.dyn);
+    if (!p) { smc_game_free(game); return NULL; }
     game->obj_dir = sf_own(p);
     solu_val room_p = solu_dobj_strget(paths.dyn, "rooms");
-    p = sgb_data_dir(room_p.dyn);
-    if (!p) { sgb_game_free(game); return NULL; }
+    p = smc_data_dir(room_p.dyn);
+    if (!p) { smc_game_free(game); return NULL; }
     game->room_dir = sf_own(p);
     solu_val spr_p = solu_dobj_strget(paths.dyn, "sprites");
-    p = sgb_data_dir(spr_p.dyn);
-    if (!p) { sgb_game_free(game); return NULL; }
+    p = smc_data_dir(spr_p.dyn);
+    if (!p) { smc_game_free(game); return NULL; }
     game->spr_dir = sf_own(p);
     solu_val snd_p = solu_dobj_strget(paths.dyn, "sounds");
-    p = sgb_data_dir(snd_p.dyn);
-    if (!p) { sgb_game_free(game); return NULL; }
+    p = smc_data_dir(snd_p.dyn);
+    if (!p) { smc_game_free(game); return NULL; }
     game->snd_dir = sf_own(p);
 
-    sgb_info(
+    smc_info(
         "=============== Game Start ===============\n"
         "Loaded manifest for game '%s'.\n"
         "Window Resolution: %dx%d:%lld\n"
@@ -374,23 +370,23 @@ sgb_game *sgb_game_new(void) {
     );
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
-        sgb_err(TUI_ERR "SDL_Init Error: %s\n" TUI_CLEAR, SDL_GetError());
+        smc_err(TUI_ERR "SDL_Init Error: %s\n" TUI_CLEAR, SDL_GetError());
         return NULL;
     }
     if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) {
-        sgb_err(TUI_ERR "IMG_Init Error: %s\n" TUI_CLEAR, IMG_GetError());
+        smc_err(TUI_ERR "IMG_Init Error: %s\n" TUI_CLEAR, IMG_GetError());
         return NULL;
     }
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
-        sgb_err("Mix_OpenAudio Error: %s\n", Mix_GetError());
+        smc_err("Mix_OpenAudio Error: %s\n", Mix_GetError());
         return NULL;
     }
     if (!(Mix_Init(MIX_INIT_MP3 | MIX_INIT_OGG))) {
-        sgb_err("Mix_Init Error: %s\n", Mix_GetError());
+        smc_err("Mix_Init Error: %s\n", Mix_GetError());
         return NULL;
     }
 
-    sf_vec2 res = sgb_platform_screensize(game->resolution, (float)game->scale);
+    sf_vec2 res = smc_platform_screensize(game->resolution, (float)game->scale);
     game->win = SDL_CreateWindow(
         game->title.c_str,
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -403,7 +399,7 @@ sgb_game *sgb_game_new(void) {
     );
     if (!game->win || !game->ren) {
         printf(TUI_ERR "Create Error: %s\n" TUI_CLEAR, SDL_GetError());
-        sgb_game_free(game);
+        smc_game_free(game);
         return NULL;
     }
 
@@ -417,33 +413,31 @@ sgb_game *sgb_game_new(void) {
     );
     SDL_SetTextureScaleMode(game->screen, SDL_ScaleModeNearest);
     SDL_SetWindowResizable(game->win, SDL_TRUE);
-    sgb_register(game);
+    smc_register(game);
 
-    if (sgb_changeroom(game, "start")) {
+    if (smc_changeroom(game, "start")) {
         sf_str p = sf_str_join(game->room_dir, sf_lit("/start.solu"));
         if (sf_file_exists(p)) {
             sf_str_free(p);
-            sgb_game_free(game);
+            smc_game_free(game);
             return NULL;
         }
-        if (!SGB_READONLY) {
+        if (!SMC_READONLY) {
             FILE *f = fopen(p.c_str, "w");
             sf_str_free(p);
             if (!f) {
-                sgb_err("Expected room 'start'", NULL);
-                sgb_game_free(game);
+                smc_err("Expected room 'start'", NULL);
+                smc_game_free(game);
                 return NULL;
             }
-            fwrite(SGB_DEFAULT_ROOM, 1, strlen(SGB_DEFAULT_ROOM), f);
+            fwrite(SMC_DEFAULT_ROOM, 1, strlen(SMC_DEFAULT_ROOM), f);
             fclose(f);
-            sgb_changeroom(game, "start");
+            smc_changeroom(game, "start");
         } else {
-            sgb_err("Cannot create room 'start'", NULL);
+            smc_err("Cannot create room 'start'", NULL);
             return NULL;
         }
     }
-
-    sgb_check("After room");
 
     return game;
 }
@@ -451,9 +445,9 @@ sgb_game *sgb_game_new(void) {
 typedef struct {
     solu_f64 depth;
     solu_val drawable;
-} sgb_draw;
+} smc_draw;
 
-static inline void sgb_update_globals(sgb_game *g) {
+static inline void smc_update_globals(smc_game *g) {
     solu_val mouse = solu_getg(g->s, "mouse");
     if (!solu_isdtype(mouse, SOLU_DOBJ)) {
         mouse = solu_dnew(g->s, SOLU_DOBJ);
@@ -477,7 +471,7 @@ static inline void sgb_update_globals(sgb_game *g) {
     g->last_time = now;
 }
 
-static inline void sgb_update_camera(sgb_game *g) {
+static inline void smc_update_camera(smc_game *g) {
     // Update Camera
     solu_val camera = solu_getg(g->s, "camera");
     if (solu_isdtype(camera, SOLU_DOBJ)) {
@@ -497,7 +491,7 @@ static inline void sgb_update_camera(sgb_game *g) {
     }
 }
 
-static int sgb_game_input(sgb_game *g) {
+static int smc_game_input(smc_game *g) {
     memset(g->keys_pressed, 0, sizeof(g->keys_pressed));
     memset(g->keys_released, 0, sizeof(g->keys_released));
     memset(g->mouse_pressed, 0, sizeof(g->mouse_pressed));
@@ -537,32 +531,69 @@ static int sgb_game_input(sgb_game *g) {
         }
     }
 
-    sgb_controller_poll(&g->platform);
+    smc_controller_poll(&g->platform);
     return 0;
 }
 
-static int sgb_game_update(sgb_game *g) {
+static inline int check_room(smc_game *g, solu_val *snap, uint32_t count) {
+    if (g->roomchange) {
+        g->roomchange = false;
+        g->camera = (sf_vec2){0, 0};
+        for (uint32_t i = 0; i < count; ++i)
+            solu_drelease(snap[i]);
+        free(snap);
+
+        int i;
+        if ((i = smc_changeroom(g, g->room.c_str))) {
+            smc_err("failed to change to room '%s'", g->room.c_str);
+            return i;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static int smc_game_update(smc_game *g) {
     solu_dobj *om = g->objects.dyn;
     uint32_t count = om->array.count;
     solu_val *snap = NULL;
+    int rc = 0;
+    int ir = 0;
 
     if (count) {
-        snap = malloc(sizeof(solu_val) * count);
+        snap = malloc(sizeof(*snap) * count);
         if (!snap) abort();
+
         for (uint32_t i = 0; i < count; ++i) {
             snap[i] = om->array.data[i];
             solu_dhold(snap[i]);
         }
-    }
-    for (solu_val *obj = snap; snap && obj < snap + count; ++obj) {
-        if (!solu_isdtype(*obj, SOLU_DOBJ)) continue;
-        if (!g->paused && sgb_callmethod(g, obj->dyn, "update")) {
-            if (!g->open) goto cleanup;
-            if (g->roomchange) break;
+    } else {
+        smc_update_camera(g);
+        return 0;
+    };
+
+    for (uint32_t i = 0; i < count; ++i) {
+        solu_val obj = snap[i];
+        if (!solu_isdtype(obj, SOLU_DOBJ))
+            continue;
+
+        if (!g->paused && smc_callmethod(g, obj.dyn, "update")) {
+            if (!g->open) {
+                rc = -1;
+                break;
+            }
+            if ((ir = check_room(g, snap, count)))
+                return ir > 0 ? 0 : -1;
         }
-        if (sgb_callmethod(g, obj->dyn, "tick")) {
-            if (!g->open) goto cleanup;
-            if (g->roomchange) break;
+
+        if (smc_callmethod(g, obj.dyn, "tick")) {
+            if (!g->open) {
+                rc = -1;
+                break;
+            }
+            if ((ir = check_room(g, snap, count)))
+                return ir > 0 ? 0 : -1;
         }
     }
 
@@ -570,25 +601,19 @@ static int sgb_game_update(sgb_game *g) {
         solu_drelease(snap[i]);
     free(snap);
 
-    if (g->roomchange) { // Interrupt update if room changes
-        g->roomchange = false;
-        g->camera = (sf_vec2){0, 0};
-        om = g->objects.dyn;
-        return 0;
-    }
-    sgb_update_camera(g);
+    if (rc < 0)
+        return -1;
+
+    smc_update_camera(g);
     return 0;
-cleanup:
-    free(snap);
-    return -1;
 }
 
-static int sgb_game_draw(sgb_game *g) {
+static int smc_game_draw(smc_game *g) {
     solu_dobj *om = g->objects.dyn;
-    sgb_draw *sort = NULL;
+    smc_draw *sort = NULL;
     uint32_t sort_c = om->array.count;
     if (sort_c) {
-        sort = calloc(sort_c, sizeof(sgb_draw));
+        sort = calloc(sort_c, sizeof(smc_draw));
         if (!sort) return -1;
     }
 
@@ -597,15 +622,15 @@ static int sgb_game_draw(sgb_game *g) {
         if (!solu_isdtype(*obj, SOLU_DOBJ)) continue;
         solu_val dv = solu_dobj_strget(obj->dyn, "depth");
         solu_f64 depth = dv.tt == SOLU_TF64 ? dv.f64 : 0;
-        for (sgb_draw *cc = sort; cc < sort + om->array.count; ++cc) {
+        for (smc_draw *cc = sort; cc < sort + om->array.count; ++cc) {
             if (cc->drawable.tt == SOLU_TNIL) {
-                *cc = (sgb_draw){depth, *obj};
+                *cc = (smc_draw){depth, *obj};
                 break;
             }
             if (cc->depth > depth) {
                 size_t tail = (size_t)((sort + sort_c) - (cc + 1));
                 memmove(cc + 1, cc, tail * sizeof(*cc));
-                *cc = (sgb_draw){ depth, *obj };
+                *cc = (smc_draw){ depth, *obj };
                 break;
             }
         }
@@ -623,14 +648,14 @@ static int sgb_game_draw(sgb_game *g) {
         g->drawing = true;
         for (int i = 0; i < 2; ++i) {
             g->gui = i;
-            for (sgb_draw *draw = sort; draw < sort + sort_c; ++draw) {
+            for (smc_draw *draw = sort; draw < sort + sort_c; ++draw) {
                 if (!solu_isdtype(draw->drawable, SOLU_DOBJ)) continue;
-                if (sgb_callmethod(g, draw->drawable.dyn, i ? "draw_gui" : "draw")) {
+                if (smc_callmethod(g, draw->drawable.dyn, i ? "draw_gui" : "draw")) {
                     if (!g->open) {
                         free(sort);
                         return -1;
                     }
-                    sgb_update_camera(g);
+                    smc_update_camera(g);
                 }
             }
         }
@@ -640,17 +665,17 @@ static int sgb_game_draw(sgb_game *g) {
     return 0;
 }
 
-int sgb_game_run(void) {
-    sgb_game *g = sgb_game_new();
+int smc_game_run(void) {
+    smc_game *g = smc_game_new();
     if (!g) return -1;
 
     while (g->open) { // SDL2 Loop
-        if (sgb_game_input(g) < 0)
+        if (smc_game_input(g) < 0)
             goto close;
-        sgb_update_globals(g);
-        if (sgb_game_update(g) < 0)
+        smc_update_globals(g);
+        if (smc_game_update(g) < 0)
             goto close;
-        if (sgb_game_draw(g) < 0)
+        if (smc_game_draw(g) < 0)
             goto close;
 
         // Draw screen to window
@@ -673,12 +698,12 @@ int sgb_game_run(void) {
         SDL_RenderPresent(g->ren);
     }
 close:
-    sgb_info("Bye bye!", NULL);
-    sgb_game_free(g);
+    smc_info("Bye bye!", NULL);
+    smc_game_free(g);
     return 0;
 }
 
-void sgb_game_free(sgb_game *game) {
+void smc_game_free(smc_game *game) {
     if (!game) return;
     solu_state_free(game->s);
     sf_str_free(game->title);
@@ -701,7 +726,7 @@ void sgb_game_free(sgb_game *game) {
     }
     if (game->collision_data.partitions) {
         for (uint32_t i = 0; i < game->collision_data.pcount; ++i)
-            sgb_partition_free(&game->collision_data.partitions[i]);
+            smc_partition_free(&game->collision_data.partitions[i]);
         free(game->collision_data.partitions);
     }
     free(game);
@@ -721,7 +746,7 @@ int main(int argc, char **argv) {
     }
     free(f); free(cwd);
     #endif
-    return sgb_game_run();
+    return smc_game_run();
 }
 
 

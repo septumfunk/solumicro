@@ -48,8 +48,5 @@ add_custom_target(stage ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_BINARY_DIR}/targets"
         "${CMAKE_SOURCE_DIR}/build/out"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_BINARY_DIR}/compile_commands.json"
-        "${CMAKE_SOURCE_DIR}/build/compile_commands.json"
-    COMMENT "Staging binaries and compile_commands.json"
+    COMMENT "Copied binaries"
 )

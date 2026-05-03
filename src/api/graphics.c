@@ -1,25 +1,25 @@
 #include "../api.h"
 #include <math.h>
 
-static void sgb_spr_delete(void *_spr) {
-    sgb_spritedata *spr = *(sgb_spritedata **)_spr;
-    solu_valmap_delete(&((sgb_game *)spr->g)->spr_cache, spr->name);
-    sgb_info("Unloaded sprite '%s'.", spr->name.c_str);
-    sgb_spritedata_free(*spr);
+static void smc_spr_delete(void *_spr) {
+    smc_spritedata *spr = *(smc_spritedata **)_spr;
+    solu_valmap_delete(&((smc_game *)spr->g)->spr_cache, spr->name);
+    smc_info("Unloaded sprite '%s'.", spr->name.c_str);
+    smc_spritedata_free(*spr);
     free(spr);
 }
 
-solu_call_ex sgb_load_sprite(solu_state *s) {
+solu_call_ex smc_load_sprite(solu_state *s) {
     solu_val name = solu_get(s, 0);
     if (!solu_isdtype(name, SOLU_DSTR))
         return solu_err(s, "arg 'name' expected str got %s", solu_typename(name).c_str);
 
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+    smc_game *g = *(smc_game **)solu_capturec(s, 0).dyn;
     solu_valmap_ex exists = solu_valmap_get(&g->spr_cache, sf_ref(name.dyn));
     if (exists.is_ok)
         return solu_ok(exists.ok);
 
-    sgb_spr_ex ex = sgb_open_sprite(g->ren, s, g->spr_dir, name.dyn);
+    smc_spr_ex ex = smc_open_sprite(g->ren, s, g->spr_dir, name.dyn);
     if (!ex.is_ok) {
         if (!ex.is_ok) {
             solu_call_ex res = solu_panic(s, "%s", ex.err.c_str);
@@ -27,7 +27,7 @@ solu_call_ex sgb_load_sprite(solu_state *s) {
             return res;
         }
     }
-    sgb_spritedata *spr = malloc(sizeof(sgb_spritedata));
+    smc_spritedata *spr = malloc(sizeof(smc_spritedata));
     *spr = ex.ok;
     spr->g = g;
 
@@ -46,7 +46,7 @@ solu_call_ex sgb_load_sprite(solu_state *s) {
     }
     solu_dobj_strset(info.dyn, "frames", frames);
 
-    solu_val out = solu_dnusr(s, sizeof(sgb_spritedata *), "spr", &spr, sgb_spr_delete, NULL);
+    solu_val out = solu_dnusr(s, sizeof(smc_spritedata *), "spr", &spr, smc_spr_delete, NULL);
     solu_dalloc *usr = solu_dheader(out);
     solu_dalloc *infod = solu_dheader(info);
     infod->metadata[SOLU_META_EXTEND] = g->sprite;
@@ -56,7 +56,7 @@ solu_call_ex sgb_load_sprite(solu_state *s) {
     return solu_ok(out);
 }
 
-solu_call_ex sgb_draw_sprite(solu_state *s) {
+solu_call_ex smc_draw_sprite(solu_state *s) {
     solu_val sprite = solu_selfc(s);
     solu_val x = solu_get(s, 1);
     solu_val y = solu_get(s, 2);
@@ -108,15 +108,15 @@ solu_call_ex sgb_draw_sprite(solu_state *s) {
         };
     }
 
-    sgb_game *g = *(sgb_game **)solu_capturec(s, s->ccall->up_c - 1).dyn;
+    smc_game *g = *(smc_game **)solu_capturec(s, s->ccall->up_c - 1).dyn;
     if (!g->drawing)
         return solu_panic(s, "Draw call outside of object:draw()");
 
-    sgb_spritedata spr = **(sgb_spritedata **)sprite.dyn;
+    smc_spritedata spr = **(smc_spritedata **)sprite.dyn;
     if (frame.i64 > spr.frame_c - 1 || frame.i64 < 0)
         return solu_panic(s, "Sprite '%s' does not contain frame %lld", spr.name.c_str, frame.i64);
 
-    sgb_rect source = spr.frames[frame.i64];
+    smc_rect source = spr.frames[frame.i64];
     SDL_RendererFlip flip = SDL_FLIP_NONE;
     if (xscale < 0) flip |= SDL_FLIP_HORIZONTAL;
     if (yscale < 0) flip |= SDL_FLIP_VERTICAL;
@@ -149,7 +149,7 @@ solu_call_ex sgb_draw_sprite(solu_state *s) {
     return solu_ok(SOLU_NIL);
 }
 
-solu_call_ex sgb_draw_rect(solu_state *s) {
+solu_call_ex smc_draw_rect(solu_state *s) {
     solu_val x = solu_get(s, 0);
     solu_val y = solu_get(s, 1);
     solu_val w = solu_get(s, 2);
@@ -182,7 +182,7 @@ solu_call_ex sgb_draw_rect(solu_state *s) {
         obj->array.data[3].tt != SOLU_TI64)
         return solu_err(s, "arg 'c' expected obj[4:i64]");
 
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+    smc_game *g = *(smc_game **)solu_capturec(s, 0).dyn;
     if (!g->drawing)
         return solu_panic(s, "Draw call outside of object:draw()");
 

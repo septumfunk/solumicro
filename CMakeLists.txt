@@ -36,3 +36,9 @@ if (VITA)
 else()
     add_subdirectory("targets/desktop")
 endif()
+
+add_custom_target(cmds ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_BINARY_DIR}/compile_commands.json"
+        "${CMAKE_SOURCE_DIR}/build/compile_commands.json"
+)

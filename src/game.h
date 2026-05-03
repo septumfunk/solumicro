@@ -4,21 +4,21 @@
 #include "asset.h"
 #include "platforms/platforms.h"
 #include "solus/val.h"
-#include <solus/vm.h>
+#include <solus/api.h>
 #include <SDL2/SDL.h>
 
-#define VEC_NAME sgb_partition
-#define VEC_T struct sgb_collider *
+#define VEC_NAME smc_partition
+#define VEC_T struct smc_collider *
 #define VSIZE_T uint16_t
 #define VSIZE_MAX UINT16_MAX
 #include <sf/containers/vec.h>
 typedef struct {
-    sgb_partition *partitions;
+    smc_partition *partitions;
     uint32_t pcount;
-    sgb_irect world;
+    smc_irect world;
     uint32_t grid;
-} sgb_collision;
-void sgb_update_world(sgb_collision *c, sgb_irect world, uint32_t grid);
+} smc_collision;
+void smc_update_world(smc_collision *c, smc_irect world, uint32_t grid);
 
 typedef struct {
     solu_state *s;
@@ -29,7 +29,7 @@ typedef struct {
     uint32_t id_c;
 
     sf_str room;
-    sgb_point room_size;
+    smc_point room_size;
     solu_i64 grid;
 
     bool paused, drawing, gui;
@@ -49,7 +49,7 @@ typedef struct {
     solu_val sprite, snd, music, obj;
     solu_f64 last_time;
 
-    sgb_collision collision_data;
+    smc_collision collision_data;
     solu_val ocall;
 
     bool keys_pressed[SDL_NUM_SCANCODES];
@@ -62,27 +62,27 @@ typedef struct {
     size_t text_input_len;
     uint32_t pc;
 
-    sgb_platformdata platform;
-} sgb_game;
+    smc_platformdata platform;
+} smc_game;
 
-typedef struct sgb_collider {
-    sgb_game *g;
+typedef struct smc_collider {
+    smc_game *g;
     uint32_t id;
-    sgb_frect rect;
+    smc_frect rect;
     bool seen, enabled;
-} sgb_collider;
+} smc_collider;
 
-sgb_game *sgb_game_new(void);
-int sgb_game_run(void);
-void sgb_game_free(sgb_game *game);
+smc_game *smc_game_new(void);
+int smc_game_run(void);
+void smc_game_free(smc_game *game);
 
-int sgb_changeroom(sgb_game *g, char *name);
+int smc_changeroom(smc_game *g, char *name);
 
-bool sgb_callmethod(sgb_game *g, solu_dobj *om, char *name);
-static inline void sgb_callmethods(sgb_game *g, solu_dobj *om, char *name) {
+bool smc_callmethod(smc_game *g, solu_dobj *om, char *name);
+static inline void smc_callmethods(smc_game *g, solu_dobj *om, char *name) {
     for (solu_val *obj = om->array.data; obj < om->array.data + om->array.count; ++obj) {
         if (solu_isdtype(*obj, SOLU_DOBJ))
-            sgb_callmethod(g, obj->dyn, name);
+            smc_callmethod(g, obj->dyn, name);
     }
 }
 

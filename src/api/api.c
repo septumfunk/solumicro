@@ -1,6 +1,6 @@
 #include "../api.h"
 
-const char SGB_DEFAULT_ROOM[] = "{ \n\
+const char SMC_DEFAULT_ROOM[] = "{ \n\
     name = 'Room'\n\
 \n\
     # Collision\n\
@@ -13,54 +13,54 @@ const char SGB_DEFAULT_ROOM[] = "{ \n\
 }";
 
 
-void sgb_register(sgb_game *g) {
+void smc_register(smc_game *g) {
     solu_val load = solu_dnew(g->s, SOLU_DOBJ);
-    solu_dobj_strset(load.dyn, "sprite", solu_wrapcfun(g->s, sgb_load_sprite, 1, &g->gptr, 1));
-    solu_dobj_strset(load.dyn, "sound", solu_wrapcfun(g->s, sgb_load_sound, 1, &g->gptr, 1));
-    solu_dobj_strset(load.dyn, "music", solu_wrapcfun(g->s, sgb_load_music, 1, &g->gptr, 1));
-    solu_dobj_strset(load.dyn, "object", solu_wrapcfun(g->s, sgb_load_object, 2, &g->gptr, 1));
+    solu_dobj_strset(load.dyn, "sprite", solu_wrapcfun(g->s, smc_load_sprite, 1, &g->gptr, 1));
+    solu_dobj_strset(load.dyn, "sound", solu_wrapcfun(g->s, smc_load_sound, 1, &g->gptr, 1));
+    solu_dobj_strset(load.dyn, "music", solu_wrapcfun(g->s, smc_load_music, 1, &g->gptr, 1));
+    solu_dobj_strset(load.dyn, "object", solu_wrapcfun(g->s, smc_load_object, 2, &g->gptr, 1));
 
     solu_val draw = solu_dnew(g->s, SOLU_DOBJ);
-    solu_dobj_strset(draw.dyn, "sprite", solu_wrapcfun(g->s, sgb_draw_sprite, 7, &g->gptr, 1));
-    solu_dobj_strset(draw.dyn, "rect", solu_wrapcfun(g->s, sgb_draw_rect, 5, &g->gptr, 1));
+    solu_dobj_strset(draw.dyn, "sprite", solu_wrapcfun(g->s, smc_draw_sprite, 7, &g->gptr, 1));
+    solu_dobj_strset(draw.dyn, "rect", solu_wrapcfun(g->s, smc_draw_rect, 5, &g->gptr, 1));
 
-    solu_val key = sgb_keys(g->s);
-    solu_dobj_strset(key.dyn, "held", solu_wrapcfun(g->s, sgb_key_held, 1, &g->gptr, 1));
-    solu_dobj_strset(key.dyn, "pressed", solu_wrapcfun(g->s, sgb_key_pressed, 1, &g->gptr, 1));
-    solu_dobj_strset(key.dyn, "released", solu_wrapcfun(g->s, sgb_key_released, 1, &g->gptr, 1));
-    solu_dobj_strset(key.dyn, "string", solu_wrapcfun(g->s, sgb_key_string, 0, &g->gptr, 1));
+    solu_val key = smc_keys(g->s);
+    solu_dobj_strset(key.dyn, "held", solu_wrapcfun(g->s, smc_key_held, 1, &g->gptr, 1));
+    solu_dobj_strset(key.dyn, "pressed", solu_wrapcfun(g->s, smc_key_pressed, 1, &g->gptr, 1));
+    solu_dobj_strset(key.dyn, "released", solu_wrapcfun(g->s, smc_key_released, 1, &g->gptr, 1));
+    solu_dobj_strset(key.dyn, "string", solu_wrapcfun(g->s, smc_key_string, 0, &g->gptr, 1));
 
-    solu_val mouse = sgb_mouse(g->s);
-    solu_dobj_strset(mouse.dyn, "held", solu_wrapcfun(g->s, sgb_mouse_held, 1, NULL, 0));
-    solu_dobj_strset(mouse.dyn, "pressed", solu_wrapcfun(g->s, sgb_mouse_pressed, 1, NULL, 0));
-    solu_dobj_strset(mouse.dyn, "released", solu_wrapcfun(g->s, sgb_mouse_released, 1, NULL, 0));
-    solu_dobj_strset(mouse.dyn, "wheel", solu_wrapcfun(g->s, sgb_mouse_wheel, 0, NULL, 0));
+    solu_val mouse = smc_mouse(g->s);
+    solu_dobj_strset(mouse.dyn, "held", solu_wrapcfun(g->s, smc_mouse_held, 1, &g->gptr, 1));
+    solu_dobj_strset(mouse.dyn, "pressed", solu_wrapcfun(g->s, smc_mouse_pressed, 1, &g->gptr, 1));
+    solu_dobj_strset(mouse.dyn, "released", solu_wrapcfun(g->s, smc_mouse_released, 1, &g->gptr, 1));
+    solu_dobj_strset(mouse.dyn, "wheel", solu_wrapcfun(g->s, smc_mouse_wheel, 0, &g->gptr, 1));
 
-    solu_val ctrl = sgb_ctrl(g->s);
-    solu_dobj_strset(ctrl.dyn, "held", solu_wrapcfun(g->s, sgb_ctrl_held, 1, &g->gptr, 1));
-    solu_dobj_strset(ctrl.dyn, "pressed", solu_wrapcfun(g->s, sgb_ctrl_pressed, 1, &g->gptr, 1));
-    solu_dobj_strset(ctrl.dyn, "released", solu_wrapcfun(g->s, sgb_ctrl_released, 1, &g->gptr, 1));
-    solu_dobj_strset(ctrl.dyn, "axis", solu_wrapcfun(g->s, sgb_ctrl_axis, 1, &g->gptr, 1));
+    solu_val ctrl = smc_ctrl(g->s);
+    solu_dobj_strset(ctrl.dyn, "held", solu_wrapcfun(g->s, smc_ctrl_held, 1, &g->gptr, 1));
+    solu_dobj_strset(ctrl.dyn, "pressed", solu_wrapcfun(g->s, smc_ctrl_pressed, 1, &g->gptr, 1));
+    solu_dobj_strset(ctrl.dyn, "released", solu_wrapcfun(g->s, smc_ctrl_released, 1, &g->gptr, 1));
+    solu_dobj_strset(ctrl.dyn, "axis", solu_wrapcfun(g->s, smc_ctrl_axis, 1, &g->gptr, 1));
 
     solu_val collider = solu_dnew(g->s, SOLU_DOBJ);
-    solu_dobj_strset(collider.dyn, "new", solu_wrapcfun(g->s, sgb_collider_new, 1, &g->gptr, 1));
+    solu_dobj_strset(collider.dyn, "new", solu_wrapcfun(g->s, smc_collider_new, 1, &g->gptr, 1));
 
     g->sprite = solu_dnew(g->s, SOLU_DOBJ);
     solu_dhold(g->sprite);
-    solu_dobj_strset(g->sprite.dyn, "draw", solu_wrapmfun(g->s, sgb_draw_sprite, 7, &g->gptr, 1));
+    solu_dobj_strset(g->sprite.dyn, "draw", solu_wrapmfun(g->s, smc_draw_sprite, 7, &g->gptr, 1));
 
     g->snd = solu_dnew(g->s, SOLU_DOBJ);
     solu_dhold(g->snd);
-    solu_dobj_strset(g->snd.dyn, "play", solu_wrapmfun(g->s, sgb_snd_play, 0, &g->gptr, 1));
-    solu_dobj_strset(g->snd.dyn, "is_playing", solu_wrapmfun(g->s, sgb_snd_is_playing, 0, &g->gptr, 1));
-    solu_dobj_strset(g->snd.dyn, "stop", solu_wrapmfun(g->s, sgb_snd_stop, 0, &g->gptr, 1));
+    solu_dobj_strset(g->snd.dyn, "play", solu_wrapmfun(g->s, smc_snd_play, 0, &g->gptr, 1));
+    solu_dobj_strset(g->snd.dyn, "is_playing", solu_wrapmfun(g->s, smc_snd_is_playing, 0, &g->gptr, 1));
+    solu_dobj_strset(g->snd.dyn, "stop", solu_wrapmfun(g->s, smc_snd_stop, 0, &g->gptr, 1));
 
     g->obj = solu_dnew(g->s, SOLU_DOBJ);
     solu_dhold(g->obj);
-    solu_dobj_strset(g->obj.dyn, "delete", solu_wrapmfun(g->s, sgb_delete, 1, &g->gptr, 1));
+    solu_dobj_strset(g->obj.dyn, "delete", solu_wrapmfun(g->s, smc_delete, 1, &g->gptr, 1));
 
     // Globals
-    solu_setg(g->s, "delete", solu_wrapmfun(g->s, sgb_delete, 1, &g->gptr, 1));
+    solu_setg(g->s, "delete", solu_wrapmfun(g->s, smc_delete, 1, &g->gptr, 1));
 
     solu_setg(g->s, "load", load);
     solu_setg(g->s, "draw", draw);
@@ -72,7 +72,7 @@ void sgb_register(sgb_game *g) {
 
 #include <SDL2/SDL.h>
 
-solu_val sgb_keys(solu_state *s) {
+solu_val smc_keys(solu_state *s) {
     solu_val keys = solu_dnew(s, SOLU_DOBJ);
 
     // Letters
@@ -190,7 +190,7 @@ solu_val sgb_keys(solu_state *s) {
 
 #include <SDL2/SDL.h>
 
-solu_val sgb_mouse(solu_state *s) {
+solu_val smc_mouse(solu_state *s) {
     solu_val mouse = solu_dnew(s, SOLU_DOBJ);
     solu_dobj_strset(mouse.dyn, "left",   (solu_val){SOLU_TI64, .i64=SDL_BUTTON_LEFT});
     solu_dobj_strset(mouse.dyn, "middle", (solu_val){SOLU_TI64, .i64=SDL_BUTTON_MIDDLE});
@@ -200,7 +200,7 @@ solu_val sgb_mouse(solu_state *s) {
     return mouse;
 }
 
-solu_call_ex sgb_set(solu_state *s) {
+solu_call_ex smc_set(solu_state *s) {
     solu_val key = solu_get(s, 1);
     solu_val val = solu_get(s, 2);
     if (!solu_isdtype(key, SOLU_DSTR))
@@ -229,6 +229,6 @@ solu_call_ex sgb_set(solu_state *s) {
     return solu_call(s, f.dyn, (solu_val[]){val}, 1);
 }
 
-solu_call_ex sgb_noset(solu_state *s) {
+solu_call_ex smc_noset(solu_state *s) {
     return solu_panic(s, "key is readonly");
 }

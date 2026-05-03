@@ -26,7 +26,7 @@ target_compile_options(solus PRIVATE
     $<$<CONFIG:Release>:-Wno-error=null-dereference>
     $<$<CONFIG:Release>:-Wno-error=maybe-uninitialized>
 )
-target_compile_definitions(solus PRIVATE ${VITA_MACROS})
+target_compile_definitions(solus PUBLIC ${VITA_MACROS})
 target_compile_definitions(${PROJECT_NAME} PRIVATE ${VITA_MACROS})
 
 # Dependencies
@@ -100,8 +100,5 @@ add_custom_target(stage ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_BINARY_DIR}/targets"
         "${CMAKE_SOURCE_DIR}/build/out"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_BINARY_DIR}/compile_commands.json"
-        "${CMAKE_SOURCE_DIR}/build/compile_commands.json"
-    COMMENT "Staging binaries and compile_commands.json"
+    COMMENT "Copied binaries"
 )

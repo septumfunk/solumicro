@@ -1,17 +1,17 @@
 #include "../api.h"
-#include "solus/vm.h"
+#include "solus/api.h"
 #include <SDL2/SDL.h>
 
-static int sgb_mouse_btn(int btn) {
+static int smc_mouse_btn(int btn) {
     switch (btn) {
-        case 0: return SDL_BUTTON_LEFT;
-        case 1: return SDL_BUTTON_RIGHT;
+        case 1: return SDL_BUTTON_LEFT;
         case 2: return SDL_BUTTON_MIDDLE;
+        case 3: return SDL_BUTTON_RIGHT;
         default: return btn;
     }
 }
 
-solu_call_ex sgb_key_held(solu_state *s) {
+solu_call_ex smc_key_held(solu_state *s) {
     solu_val key = solu_get(s, 0);
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
@@ -24,8 +24,8 @@ solu_call_ex sgb_key_held(solu_state *s) {
     });
 }
 
-solu_call_ex sgb_key_pressed(solu_state *s) {
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+solu_call_ex smc_key_pressed(solu_state *s) {
+    smc_game *g = *(smc_game **)solu_capturec(s, 0).dyn;
     solu_val key = solu_get(s, 0);
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
@@ -37,8 +37,8 @@ solu_call_ex sgb_key_pressed(solu_state *s) {
     });
 }
 
-solu_call_ex sgb_key_released(solu_state *s) {
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+solu_call_ex smc_key_released(solu_state *s) {
+    smc_game *g = *(smc_game **)solu_capturec(s, 0).dyn;
     solu_val key = solu_get(s, 0);
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
@@ -50,17 +50,17 @@ solu_call_ex sgb_key_released(solu_state *s) {
     });
 }
 
-solu_call_ex sgb_key_string(solu_state *s) {
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+solu_call_ex smc_key_string(solu_state *s) {
+    smc_game *g = *(smc_game **)solu_capturec(s, 0).dyn;
     return solu_ok(solu_dnstr(s, g->text_input));
 }
 
-solu_call_ex sgb_mouse_held(solu_state *s) {
+solu_call_ex smc_mouse_held(solu_state *s) {
     solu_val key = solu_get(s, 0);
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
 
-    int btn = sgb_mouse_btn((int)key.i64);
+    int btn = smc_mouse_btn((int)key.i64);
     uint32_t state = SDL_GetMouseState(NULL, NULL);
     return solu_ok((solu_val){
         SOLU_TBOOL,
@@ -68,34 +68,34 @@ solu_call_ex sgb_mouse_held(solu_state *s) {
     });
 }
 
-solu_call_ex sgb_mouse_pressed(solu_state *s) {
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+solu_call_ex smc_mouse_pressed(solu_state *s) {
+    smc_game *g = *(smc_game **)solu_capturec(s, 0).dyn;
     solu_val key = solu_get(s, 0);
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
 
-    int btn = sgb_mouse_btn((int)key.i64);
+    int btn = smc_mouse_btn((int)key.i64);
     return solu_ok((solu_val){
         SOLU_TBOOL,
         .boolean = btn > 0 && btn < 8 && g->mouse_pressed[btn]
     });
 }
 
-solu_call_ex sgb_mouse_released(solu_state *s) {
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+solu_call_ex smc_mouse_released(solu_state *s) {
+    smc_game *g = *(smc_game **)solu_capturec(s, 0).dyn;
     solu_val key = solu_get(s, 0);
     if (key.tt != SOLU_TI64)
         return solu_err(s, "arg 'key' expected i64 got %s", solu_typename(key).c_str);
 
-    int btn = sgb_mouse_btn((int)key.i64);
+    int btn = smc_mouse_btn((int)key.i64);
     return solu_ok((solu_val){
         SOLU_TBOOL,
         .boolean = btn > 0 && btn < 8 && g->mouse_released[btn]
     });
 }
 
-solu_call_ex sgb_mouse_wheel(solu_state *s) {
-    sgb_game *g = *(sgb_game **)solu_capturec(s, 0).dyn;
+solu_call_ex smc_mouse_wheel(solu_state *s) {
+    smc_game *g = *(smc_game **)solu_capturec(s, 0).dyn;
     return solu_ok((solu_val){
         SOLU_TF64,
         .f64 = g->mouse_wheel
